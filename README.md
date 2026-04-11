@@ -4,6 +4,31 @@ Home Assistant custom integration for the GivEnergy EVC.
 
 It runs a local OCPP server inside Home Assistant so your charger can connect directly to Home Assistant over your local network.
 
+## Screenshots
+
+<table>
+  <thead>
+    <tr>
+      <th>Sensors</th>
+      <th>Configuration</th>
+      <th>Diagnostic</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td valign="top">
+        <img width="323" height="850" alt="image" src="https://github.com/user-attachments/assets/f3eb35b8-0f28-4ba5-b7de-a704e82b8ae1" />
+      </td>
+      <td valign="top">
+        <img width="320" height="670" alt="image" src="https://github.com/user-attachments/assets/3daae2fd-ee3d-41db-b528-e72e3196bbff" />
+      </td>
+      <td valign="top">
+        <img width="318" height="512" alt="image" src="https://github.com/user-attachments/assets/0e0eecef-d848-480a-bda1-19a11c596d5f" />
+      </td>
+    </tr>
+  </tbody>
+</table>
+
 ## Features
 
 - Local OCPP 1.6J listener built into Home Assistant
