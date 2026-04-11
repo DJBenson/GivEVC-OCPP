@@ -170,3 +170,31 @@ change_availability:
       required: true
       selector:
         boolean:
+update_firmware:
+  name: Update firmware
+  description: Send an OCPP UpdateFirmware request to the charger.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    location:
+      required: true
+      selector:
+        text:
+    retrieve_date:
+      required: true
+      selector:
+        text:
+    retries:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+    retry_interval:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400

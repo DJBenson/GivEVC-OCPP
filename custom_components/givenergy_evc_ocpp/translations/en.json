@@ -6,6 +6,9 @@
         "description": "Start a dedicated local OCPP 1.6J listener for a GivEnergy EVC.",
         "data": {
           "listen_port": "Listen port",
+          "firmware_ftp_port": "Firmware FTP port",
+          "firmware_ftp_passive_port_start": "Firmware FTP passive port start",
+          "firmware_ftp_passive_port_end": "Firmware FTP passive port end",
           "expected_charge_point_id": "Expected charge point ID",
           "adopt_first_charger": "Automatically adopt the first charger that connects",
           "meter_value_sample_interval_seconds": "Meter values interval (seconds)",
@@ -14,7 +17,12 @@
       }
     },
     "error": {
-      "port_in_use": "The selected listen port is already in use."
+      "port_in_use": "The selected listen port is already in use.",
+      "ftp_port_in_use": "The selected firmware FTP port is already in use.",
+      "ports_must_differ": "The OCPP listen port and firmware FTP port must be different.",
+      "ftp_passive_port_in_use": "One or more firmware FTP passive ports are already in use.",
+      "ftp_passive_range_invalid": "The firmware FTP passive port range is invalid.",
+      "ftp_passive_range_conflict": "The firmware FTP passive port range must not overlap the OCPP or FTP control ports."
     },
     "abort": {
       "already_configured": "Only one GivEnergy EVC OCPP listener can be configured."
@@ -26,6 +34,9 @@
         "title": "GivEnergy EVC OCPP options",
         "data": {
           "listen_port": "Listen port",
+          "firmware_ftp_port": "Firmware FTP port",
+          "firmware_ftp_passive_port_start": "Firmware FTP passive port start",
+          "firmware_ftp_passive_port_end": "Firmware FTP passive port end",
           "expected_charge_point_id": "Expected charge point ID",
           "adopt_first_charger": "Automatically adopt the first charger that connects",
           "debug_logging": "Enable verbose OCPP logging",
@@ -36,7 +47,12 @@
       }
     },
     "error": {
-      "port_in_use": "The selected listen port is already in use."
+      "port_in_use": "The selected listen port is already in use.",
+      "ftp_port_in_use": "The selected firmware FTP port is already in use.",
+      "ports_must_differ": "The OCPP listen port and firmware FTP port must be different.",
+      "ftp_passive_port_in_use": "One or more firmware FTP passive ports are already in use.",
+      "ftp_passive_range_invalid": "The firmware FTP passive port range is invalid.",
+      "ftp_passive_range_conflict": "The firmware FTP passive port range must not overlap the OCPP or FTP control ports."
     }
   },
   "entity": {
@@ -100,6 +116,9 @@
       "meter_value_sample_interval_seconds": {
         "name": "Meter values interval"
       },
+      "firmware_status": {
+        "name": "Firmware status"
+      },
       "heartbeat_age": {
         "name": "Heartbeat age"
       },
@@ -108,6 +127,12 @@
       }
     },
     "button": {
+      "install_selected_firmware": {
+        "name": "Install selected firmware (FTP)"
+      },
+      "install_selected_firmware_http": {
+        "name": "Install selected firmware (HTTP)"
+      },
       "reset_soft": {
         "name": "Soft reset"
       },
@@ -135,6 +160,9 @@
     "select": {
       "charge_mode": {
         "name": "Charge mode"
+      },
+      "firmware_file": {
+        "name": "Firmware file"
       }
     },
     "switch": {
@@ -152,6 +180,9 @@
       },
       "plug_and_go": {
         "name": "Plug and Go"
+      },
+      "firmware_ftp_server": {
+        "name": "Firmware FTP server"
       }
     }
   }

@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 import logging
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
@@ -25,12 +27,18 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_EXPECTED_CHARGE_POINT_ID,
+    CONF_FIRMWARE_FTP_PORT,
+    CONF_FIRMWARE_FTP_PASSIVE_PORT_END,
+    CONF_FIRMWARE_FTP_PASSIVE_PORT_START,
     CONF_LISTEN_PORT,
     CONF_METER_VALUE_SAMPLE_INTERVAL,
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_EVSE_MAX_CURRENT,
     DEFAULT_EVSE_MIN_CURRENT,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_FTP_PORT,
+    DEFAULT_FIRMWARE_FTP_PASSIVE_PORT_END,
+    DEFAULT_FIRMWARE_FTP_PASSIVE_PORT_START,
     GIVENERGY_CHARGE_MODES,
     DEFAULT_METER_VALUE_SAMPLE_INTERVAL,
     DEFAULT_REMOTE_ID_TAG,
@@ -61,6 +69,14 @@ class GivEnergyEvcState:
     status: str | None = None
     operational_status: str | None = None
     firmware_status: str | None = None
+    firmware_ftp_enabled: bool = False
+    firmware_ftp_running: bool = False
+    firmware_ftp_host: str | None = None
+    firmware_ftp_error: str | None = None
+    firmware_ftp_last_transfer: dict[str, Any] | None = None
+    selected_firmware_file: str | None = None
+    available_firmware_files: list[str] = field(default_factory=list)
+    firmware_ftp_events: list[dict[str, Any]] = field(default_factory=list)
     diagnostics_status: str | None = None
     error_code: str | None = None
     vendor_error_code: str | None = None
@@ -94,6 +110,7 @@ class GivEnergyEvcState:
     last_status_notification: dict[str, Any] | None = None
     last_meter_values: dict[str, Any] | None = None
     last_get_configuration: dict[str, Any] | None = None
+    last_update_firmware_request: dict[str, Any] | None = None
     last_command_results: dict[str, Any] = field(default_factory=dict)
     meter_samples: list[dict[str, Any]] = field(default_factory=list)
     parsed_meter_values: dict[str, Any] = field(default_factory=dict)
@@ -124,6 +141,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.entry = entry
         self.data = GivEnergyEvcState()
         self.server: Any = None
+        self.firmware_ftp_server: Any = None
         self._unsub_timer: CALLBACK_TYPE | None = None
         self._next_transaction_id = 1
         self._store = Store[dict[str, Any]](
@@ -150,6 +168,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "last_boot_notification": self.data.last_boot_notification,
             "car_plugged_in": self.data.car_plugged_in,
             "plug_and_go_enabled": self.data.plug_and_go_enabled,
+            "firmware_ftp_enabled": self.data.firmware_ftp_enabled,
+            "firmware_ftp_host": self.data.firmware_ftp_host,
+            "firmware_ftp_last_transfer": self.data.firmware_ftp_last_transfer,
+            "selected_firmware_file": self.data.selected_firmware_file,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -187,10 +209,21 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             else self._is_car_plugged_in_status(self.data.status)
         )
         self.data.plug_and_go_enabled = bool(state.get("plug_and_go_enabled", False))
+        self.data.firmware_ftp_enabled = bool(state.get("firmware_ftp_enabled", False))
+        firmware_ftp_host = state.get("firmware_ftp_host")
+        self.data.firmware_ftp_host = (
+            str(firmware_ftp_host).strip() if firmware_ftp_host else None
+        )
+        self.data.firmware_ftp_last_transfer = state.get("firmware_ftp_last_transfer")
+        selected_firmware_file = state.get("selected_firmware_file")
+        self.data.selected_firmware_file = (
+            str(selected_firmware_file).strip() if selected_firmware_file else None
+        )
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
 
+        self._refresh_available_firmware_files()
         self._publish_state()
 
     async def async_restore_persisted_state(self) -> None:
@@ -202,10 +235,28 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_start(self) -> None:
         """Start coordinator tasks."""
 
+        self._refresh_available_firmware_files()
+
+        if self.data.firmware_ftp_enabled and self.firmware_ftp_server is not None:
+            try:
+                await self.firmware_ftp_server.async_start(
+                    self.firmware_ftp_port,
+                    passive_ports=self.firmware_ftp_passive_ports,
+                    masquerade_address=self.data.firmware_ftp_host or None,
+                )
+            except HomeAssistantError as err:
+                self.data.firmware_ftp_running = False
+                self.data.firmware_ftp_error = str(err)
+            else:
+                self.data.firmware_ftp_running = True
+                self.data.firmware_ftp_error = None
+
         if self._unsub_timer is None:
             self._unsub_timer = async_track_time_interval(
                 self.hass, self._async_handle_timer, timedelta(seconds=30)
             )
+
+        self._publish_state()
 
     async def async_stop(self) -> None:
         """Stop coordinator tasks."""
@@ -213,6 +264,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if self._unsub_timer is not None:
             self._unsub_timer()
             self._unsub_timer = None
+
+        self.data.firmware_ftp_running = False
 
     @property
     def has_device(self) -> bool:
@@ -274,6 +327,49 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 CONF_LISTEN_PORT, self.entry.data.get(CONF_LISTEN_PORT)
             )
         )
+
+    @property
+    def firmware_ftp_port(self) -> int:
+        """Return the configured firmware FTP port."""
+
+        return int(
+            self.entry.options.get(
+                CONF_FIRMWARE_FTP_PORT,
+                self.entry.data.get(
+                    CONF_FIRMWARE_FTP_PORT, DEFAULT_FIRMWARE_FTP_PORT
+                ),
+            )
+        )
+
+    @property
+    def firmware_directory(self) -> Path:
+        """Return the directory served by the local firmware FTP server."""
+
+        return Path(__file__).resolve().parent / "firmware"
+
+    @property
+    def firmware_ftp_passive_ports(self) -> range:
+        """Return the configured FTP passive port range."""
+
+        start = int(
+            self.entry.options.get(
+                CONF_FIRMWARE_FTP_PASSIVE_PORT_START,
+                self.entry.data.get(
+                    CONF_FIRMWARE_FTP_PASSIVE_PORT_START,
+                    DEFAULT_FIRMWARE_FTP_PASSIVE_PORT_START,
+                ),
+            )
+        )
+        end = int(
+            self.entry.options.get(
+                CONF_FIRMWARE_FTP_PASSIVE_PORT_END,
+                self.entry.data.get(
+                    CONF_FIRMWARE_FTP_PASSIVE_PORT_END,
+                    DEFAULT_FIRMWARE_FTP_PASSIVE_PORT_END,
+                ),
+            )
+        )
+        return range(start, end + 1)
 
     @property
     def desired_meter_value_sample_interval(self) -> int:
@@ -347,6 +443,13 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         self.server = server
 
+    def set_firmware_ftp_server(self, server: Any) -> None:
+        """Attach the local firmware FTP server wrapper."""
+
+        self.firmware_ftp_server = server
+        if server is not None:
+            server.set_event_callback(self._async_handle_firmware_ftp_event)
+
     def can_accept_charge_point(self, candidate_id: str | None) -> bool:
         """Return whether the candidate charge point should be accepted."""
 
@@ -366,11 +469,20 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.rejected_charge_points.append(candidate_id)
             self._publish_state()
 
-    async def async_connection_opened(self, candidate_id: str | None) -> None:
+    async def async_connection_opened(
+        self, candidate_id: str | None, local_host: str | None = None
+    ) -> None:
         """Handle a websocket connection opening."""
 
         if candidate_id:
             self.data.path_charge_point_id = candidate_id
+        if local_host:
+            self.data.firmware_ftp_host = local_host
+            if (
+                self.firmware_ftp_server is not None
+                and self.firmware_ftp_server.is_running
+            ):
+                self.firmware_ftp_server.set_masquerade_address(local_host)
 
         if (
             candidate_id
@@ -572,6 +684,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Record FirmwareStatusNotification data."""
 
         self.data.firmware_status = payload.get("status")
+        self.data.last_command_results["FirmwareStatusNotification"] = payload
         self._touch_last_seen()
         self._publish_state()
 
@@ -659,6 +772,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Store the last result for a central-system initiated command."""
 
         self.data.last_command_results[action] = result
+        self._publish_state()
+
+    async def _async_handle_firmware_ftp_event(self, event: dict[str, Any]) -> None:
+        """Record an FTP server event from the background server thread."""
+
+        event_record = {
+            "captured_at": datetime.now(UTC).isoformat(),
+            **event,
+        }
+        self.data.firmware_ftp_events.append(event_record)
+        if len(self.data.firmware_ftp_events) > 50:
+            self.data.firmware_ftp_events = self.data.firmware_ftp_events[-50:]
+
+        if event.get("event") in {"file_sent", "file_send_incomplete"}:
+            self.data.firmware_ftp_last_transfer = event_record
+
         self._publish_state()
 
     @callback
@@ -1003,6 +1132,30 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self._publish_state()
         return result
 
+    async def async_update_firmware(
+        self,
+        location: str,
+        retrieve_date: str,
+        retries: int | None = None,
+        retry_interval: int | None = None,
+    ) -> dict[str, Any]:
+        """Issue an UpdateFirmware command."""
+
+        payload: dict[str, Any] = {
+            "location": location,
+            "retrieveDate": retrieve_date,
+        }
+        if retries is not None:
+            payload["retries"] = retries
+        if retry_interval is not None:
+            payload["retryInterval"] = retry_interval
+
+        self.data.last_update_firmware_request = dict(payload)
+        result = await self._async_send_command("UpdateFirmware", payload)
+        await self.async_record_command_result("UpdateFirmware", result)
+        self._publish_state()
+        return result
+
     async def async_set_current_limit(self, amperage: float) -> dict[str, Any]:
         """Change the charger current limit."""
 
@@ -1057,6 +1210,119 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.plug_and_go_enabled = enabled
         self._publish_state()
         return {"enabled": enabled}
+
+    async def async_set_firmware_ftp_enabled(self, enabled: bool) -> dict[str, Any]:
+        """Start or stop the local firmware FTP server."""
+
+        if self.firmware_ftp_server is None:
+            raise HomeAssistantError("Firmware FTP server is not available")
+
+        self._refresh_available_firmware_files()
+
+        if enabled:
+            if not self.data.available_firmware_files:
+                raise HomeAssistantError(
+                    "No bundled firmware files were found in the integration firmware directory"
+                )
+            try:
+                await self.firmware_ftp_server.async_start(
+                    self.firmware_ftp_port,
+                    passive_ports=self.firmware_ftp_passive_ports,
+                    masquerade_address=self.data.firmware_ftp_host or None,
+                )
+            except HomeAssistantError as err:
+                self.data.firmware_ftp_running = False
+                self.data.firmware_ftp_enabled = False
+                self.data.firmware_ftp_error = str(err)
+                self._publish_state()
+                raise
+
+            self.data.firmware_ftp_enabled = True
+            self.data.firmware_ftp_running = True
+            self.data.firmware_ftp_error = None
+        else:
+            await self.firmware_ftp_server.async_stop()
+            self.data.firmware_ftp_enabled = False
+            self.data.firmware_ftp_running = False
+            self.data.firmware_ftp_error = None
+
+        self._publish_state()
+        return {
+            "enabled": self.data.firmware_ftp_enabled,
+            "running": self.data.firmware_ftp_running,
+            "port": self.firmware_ftp_port,
+        }
+
+    async def async_set_selected_firmware_file(self, filename: str) -> None:
+        """Select the firmware file to expose/install."""
+
+        self._refresh_available_firmware_files()
+        if filename not in self.data.available_firmware_files:
+            raise HomeAssistantError(f"Unknown bundled firmware file: {filename}")
+        self.data.selected_firmware_file = filename
+        self._publish_state()
+
+    async def async_install_selected_firmware(self) -> dict[str, Any]:
+        """Install the currently selected bundled firmware file."""
+
+        self._refresh_available_firmware_files()
+        filename = self.data.selected_firmware_file
+        if not filename:
+            raise HomeAssistantError("No firmware file is currently selected")
+        if filename not in self.data.available_firmware_files:
+            raise HomeAssistantError(
+                f"The selected firmware file is no longer available: {filename}"
+            )
+        if not self.data.firmware_ftp_running:
+            raise HomeAssistantError("The firmware FTP server is not running")
+        if not self.data.connected:
+            raise HomeAssistantError("No GivEnergy charger is currently connected")
+        if not self.data.firmware_ftp_host:
+            raise HomeAssistantError(
+                "Unable to determine the Home Assistant host address for the charger"
+            )
+
+        retrieve_at = (datetime.now(UTC) + timedelta(seconds=60)).replace(microsecond=0)
+        location = (
+            f"ftp://{self.data.firmware_ftp_host}:{self.firmware_ftp_port}/"
+            f"{quote(filename)}"
+        )
+        return await self.async_update_firmware(
+            location=location,
+            retrieve_date=retrieve_at.isoformat().replace("+00:00", "Z"),
+            retries=1,
+            retry_interval=60,
+        )
+
+    async def async_install_selected_firmware_http(self) -> dict[str, Any]:
+        """Install the currently selected firmware file via HTTP on the OCPP port."""
+
+        self._refresh_available_firmware_files()
+        filename = self.data.selected_firmware_file
+        if not filename:
+            raise HomeAssistantError("No firmware file is currently selected")
+        if filename not in self.data.available_firmware_files:
+            raise HomeAssistantError(
+                f"The selected firmware file is no longer available: {filename}"
+            )
+        if not self.data.connected:
+            raise HomeAssistantError("No GivEnergy charger is currently connected")
+        if not self.data.firmware_ftp_host:
+            raise HomeAssistantError(
+                "Unable to determine the Home Assistant host address for the charger"
+            )
+        if self.server is None:
+            raise HomeAssistantError("OCPP server is not available")
+
+        base_url = self.server.firmware_http_base_url(self.data.firmware_ftp_host)
+        retrieve_at = (datetime.now(UTC) + timedelta(seconds=60)).replace(microsecond=0)
+        location = base_url + quote(filename)
+        return await self.async_update_firmware(
+            location=location,
+            retrieve_date=retrieve_at.isoformat().replace("+00:00", "Z"),
+            retries=1,
+            retry_interval=60,
+        )
 
     async def async_start_charging(self) -> dict[str, Any]:
         """Request an immediate charging session."""
@@ -1191,6 +1457,21 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "options": dict(self.entry.options),
             "state": state,
         }
+
+    def _refresh_available_firmware_files(self) -> None:
+        """Refresh the list of bundled firmware files available for FTP serving."""
+
+        firmware_dir = self.firmware_directory
+        firmware_dir.mkdir(parents=True, exist_ok=True)
+        files = sorted(
+            path.name
+            for path in firmware_dir.iterdir()
+            if path.is_file() and not path.name.startswith(".")
+        )
+        self.data.available_firmware_files = files
+
+        if self.data.selected_firmware_file not in files:
+            self.data.selected_firmware_file = files[0] if files else None
 
     def _configuration_value(self, key: str) -> Any:
         """Return a configuration value if available."""

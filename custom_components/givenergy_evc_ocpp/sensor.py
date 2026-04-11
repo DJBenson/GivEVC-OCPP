@@ -223,6 +223,31 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         value_fn=lambda coordinator: coordinator.data.meter_value_sample_interval_seconds,
     ),
+    GivEnergySensorDescription(
+        key="firmware_status",
+        translation_key="firmware_status",
+        icon="mdi:download-network-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.data.firmware_status,
+        attrs_fn=lambda coordinator: {
+            "last_update_firmware_request": coordinator.data.last_update_firmware_request,
+            "last_firmware_status_notification": coordinator.data.last_command_results.get(
+                "FirmwareStatusNotification"
+            ),
+            "last_update_firmware_result": coordinator.data.last_command_results.get(
+                "UpdateFirmware"
+            ),
+            "ftp_server_running": coordinator.data.firmware_ftp_running,
+            "ftp_host": coordinator.data.firmware_ftp_host,
+            "ftp_port": coordinator.firmware_ftp_port,
+            "ftp_passive_ports": (
+                f"{coordinator.firmware_ftp_passive_ports.start}-"
+                f"{coordinator.firmware_ftp_passive_ports.stop - 1}"
+            ),
+            "ftp_last_transfer": coordinator.data.firmware_ftp_last_transfer,
+            "ftp_events": coordinator.data.firmware_ftp_events,
+        },
+    ),
 )
 
 

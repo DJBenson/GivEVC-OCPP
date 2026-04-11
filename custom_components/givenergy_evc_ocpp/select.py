@@ -22,7 +22,12 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
-    async_add_entities([GivEnergyChargeModeSelect(coordinator)])
+    async_add_entities(
+        [
+            GivEnergyChargeModeSelect(coordinator),
+            GivEnergyFirmwareFileSelect(coordinator),
+        ]
+    )
 
 
 class GivEnergyChargeModeSelect(GivEnergyEvcEntity, SelectEntity):
@@ -59,3 +64,40 @@ class GivEnergyChargeModeSelect(GivEnergyEvcEntity, SelectEntity):
         """Select a new charger mode."""
 
         await self.coordinator.async_set_charge_mode(option)
+
+
+class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
+    """Select entity for bundled firmware files served over FTP."""
+
+    _attr_translation_key = "firmware_file"
+    _attr_icon = "mdi:file-download-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
+        """Initialise the select."""
+
+        super().__init__(coordinator, "firmware_file")
+
+    @property
+    def available(self) -> bool:
+        """Only expose the firmware list while the local FTP server is running."""
+
+        return self.coordinator.data.firmware_ftp_running
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the selected firmware file."""
+
+        return self.coordinator.data.selected_firmware_file
+
+    @property
+    def options(self) -> list[str]:
+        """Return available bundled firmware files."""
+
+        self.coordinator._refresh_available_firmware_files()
+        return list(self.coordinator.data.available_firmware_files)
+
+    async def async_select_option(self, option: str) -> None:
+        """Select a bundled firmware file."""
+
+        await self.coordinator.async_set_selected_firmware_file(option)
