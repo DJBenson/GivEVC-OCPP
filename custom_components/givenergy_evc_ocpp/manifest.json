@@ -1,0 +1,11 @@
+{
+  "domain": "givenergy_evc_ocpp",
+  "name": "GivEnergy EVC OCPP",
+  "codeowners": ["@djbenson"],
+  "config_flow": true,
+  "documentation": "https://github.com/DJBenson/GivEVC-OCPP",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "loggers": ["custom_components.givenergy_evc_ocpp"],
+  "version": "0.1.0"
+}

@@ -1,0 +1,172 @@
+reset:
+  name: Reset charger
+  description: Send a soft or hard OCPP Reset command to the connected charger.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    type:
+      required: true
+      selector:
+        select:
+          options:
+            - Soft
+            - Hard
+unlock_connector:
+  name: Unlock connector
+  description: Send an OCPP UnlockConnector request to release the connector lock.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    connector_id:
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 10
+trigger_message:
+  name: Trigger message
+  description: Ask the charger to send a specific OCPP message, such as MeterValues.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    requested_message:
+      required: true
+      selector:
+        text:
+    connector_id:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 10
+get_configuration:
+  name: Refresh configuration
+  description: Request the charger's full OCPP configuration set and optionally return the raw OCPP response payload.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    keys:
+      required: false
+      selector:
+        object:
+change_configuration:
+  name: Change configuration
+  description: Send a ChangeConfiguration request to the charger.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    key:
+      required: true
+      selector:
+        text:
+    value:
+      required: true
+      selector:
+        text:
+remote_start_transaction:
+  name: Remote start transaction
+  description: Start charging remotely using OCPP RemoteStartTransaction.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    id_tag:
+      required: false
+      selector:
+        text:
+    connector_id:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 10
+    charging_profile:
+      required: false
+      selector:
+        object:
+remote_stop_transaction:
+  name: Remote stop transaction
+  description: Stop charging remotely using OCPP RemoteStopTransaction.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    transaction_id:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 2147483647
+set_charging_profile:
+  name: Set charging profile
+  description: Send a raw SetChargingProfile OCPP request.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    connector_id:
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 10
+    charging_profile:
+      required: true
+      selector:
+        object:
+clear_charging_profile:
+  name: Clear charging profile
+  description: Clear one or more charging profiles from the charger.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    connector_id:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 10
+    charging_profile_id:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 2147483647
+    stack_level:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+    charging_profile_purpose:
+      required: false
+      selector:
+        text:
+change_availability:
+  name: Change availability
+  description: Toggle the charger between operative and inoperative.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    operative:
+      required: true
+      selector:
+        boolean:
