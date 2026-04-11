@@ -149,6 +149,9 @@
       },
       "front_panel_leds": {
         "name": "Front panel LEDs"
+      },
+      "plug_and_go": {
+        "name": "Plug and Go"
       }
     }
   }

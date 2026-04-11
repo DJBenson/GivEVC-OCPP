@@ -57,6 +57,7 @@ class GivEnergyEvcState:
     charge_point_serial_number: str | None = None
     charge_box_serial_number: str | None = None
     connection_state: str = "disconnected"
+    car_plugged_in: bool | None = None
     status: str | None = None
     operational_status: str | None = None
     firmware_status: str | None = None
@@ -79,6 +80,7 @@ class GivEnergyEvcState:
     live_current_a: float | None = None
     live_voltage_v: float | None = None
     current_limit_a: float | None = None
+    plug_and_go_enabled: bool = False
     meter_value_sample_interval_seconds: int | None = None
     local_ip_address: str | None = None
     charger_enabled: bool | None = None
@@ -146,6 +148,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "charge_point_serial_number": self.data.charge_point_serial_number,
             "charge_box_serial_number": self.data.charge_box_serial_number,
             "last_boot_notification": self.data.last_boot_notification,
+            "car_plugged_in": self.data.car_plugged_in,
+            "plug_and_go_enabled": self.data.plug_and_go_enabled,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -176,6 +180,13 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.charge_point_serial_number = state.get("charge_point_serial_number")
         self.data.charge_box_serial_number = state.get("charge_box_serial_number")
         self.data.last_boot_notification = state.get("last_boot_notification")
+        stored_car_plugged_in = state.get("car_plugged_in")
+        self.data.car_plugged_in = (
+            bool(stored_car_plugged_in)
+            if stored_car_plugged_in is not None
+            else self._is_car_plugged_in_status(self.data.status)
+        )
+        self.data.plug_and_go_enabled = bool(state.get("plug_and_go_enabled", False))
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
@@ -427,8 +438,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_record_status(self, payload: dict[str, Any]) -> None:
         """Record StatusNotification data."""
 
+        previous_plugged_in = self.data.car_plugged_in
         self.data.last_status_notification = payload
         self.data.status = payload.get("status")
+        self.data.car_plugged_in = self._is_car_plugged_in_status(self.data.status)
         self.data.error_code = payload.get("errorCode")
         self.data.vendor_error_code = payload.get("vendorErrorCode")
         self.data.charger_enabled = self.data.status != "Unavailable"
@@ -442,6 +455,14 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self._apply_meter_values_payload(self.data.last_meter_values)
 
         self._publish_state()
+
+        if (
+            self.data.plug_and_go_enabled
+            and previous_plugged_in is False
+            and self.data.car_plugged_in is True
+            and not self.data.transaction_active
+        ):
+            self.hass.async_create_task(self._async_handle_plug_and_go_start())
 
     async def async_record_meter_values(self, payload: dict[str, Any]) -> None:
         """Record and parse MeterValues data."""
@@ -1030,6 +1051,13 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "RandomisedDelayDuration", int(seconds)
         )
 
+    async def async_set_plug_and_go_enabled(self, enabled: bool) -> dict[str, Any]:
+        """Enable or disable Home Assistant-side plug-and-go behavior."""
+
+        self.data.plug_and_go_enabled = enabled
+        self._publish_state()
+        return {"enabled": enabled}
+
     async def async_start_charging(self) -> dict[str, Any]:
         """Request an immediate charging session."""
 
@@ -1039,6 +1067,16 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Request that the current charging session stops."""
 
         return await self.async_remote_stop_transaction()
+
+    async def _async_handle_plug_and_go_start(self) -> None:
+        """Start charging after a real plug-in edge when plug-and-go is enabled."""
+
+        try:
+            await self.async_start_charging()
+        except HomeAssistantError as err:
+            _LOGGER.warning("Plug and Go failed to start charging: %s", err)
+        except Exception:  # pragma: no cover - defensive logging
+            _LOGGER.exception("Unexpected error while handling Plug and Go start")
 
     async def _async_send_command(
         self, action: str, payload: dict[str, Any]
@@ -1089,6 +1127,20 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if status == "Faulted":
             return "Faulted"
         return "Operative"
+
+    @staticmethod
+    def _is_car_plugged_in_status(status: str | None) -> bool | None:
+        """Return whether the raw charger status indicates a plugged-in car."""
+
+        if status is None:
+            return None
+        return status in {
+            "Preparing",
+            "Charging",
+            "SuspendedEVSE",
+            "SuspendedEV",
+            "Finishing",
+        }
 
     async def _async_upsert_device(self) -> None:
         """Create or update the charger device."""

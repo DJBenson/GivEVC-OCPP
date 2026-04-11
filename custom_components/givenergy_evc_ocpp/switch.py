@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
@@ -21,8 +21,8 @@ class GivEnergySwitchDescription(SwitchEntityDescription):
     """Description of a GivEnergy switch."""
 
     is_on_fn: Callable[[GivEnergyEvcCoordinator], bool | None]
-    turn_on_fn: Callable[[GivEnergyEvcCoordinator], Awaitable[dict]]
-    turn_off_fn: Callable[[GivEnergyEvcCoordinator], Awaitable[dict]]
+    turn_on_fn: Callable[[GivEnergyEvcCoordinator], Awaitable[dict[str, Any]]]
+    turn_off_fn: Callable[[GivEnergyEvcCoordinator], Awaitable[dict[str, Any]]]
 
 
 SWITCHES: tuple[GivEnergySwitchDescription, ...] = (
@@ -62,6 +62,15 @@ SWITCHES: tuple[GivEnergySwitchDescription, ...] = (
         is_on_fn=lambda coordinator: coordinator.data.front_panel_leds_enabled,
         turn_on_fn=lambda coordinator: coordinator.async_set_front_panel_leds_enabled(True),
         turn_off_fn=lambda coordinator: coordinator.async_set_front_panel_leds_enabled(False),
+    ),
+    GivEnergySwitchDescription(
+        key="plug_and_go",
+        translation_key="plug_and_go",
+        icon="mdi:car-electric",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda coordinator: coordinator.data.plug_and_go_enabled,
+        turn_on_fn=lambda coordinator: coordinator.async_set_plug_and_go_enabled(True),
+        turn_off_fn=lambda coordinator: coordinator.async_set_plug_and_go_enabled(False),
     ),
 )
 

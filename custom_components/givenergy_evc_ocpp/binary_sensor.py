@@ -14,8 +14,6 @@ from .const import DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
 from .entity import GivEnergyEvcEntity
 
-_PLUGGED_IN_STATUSES = {"Preparing", "Charging", "SuspendedEVSE", "SuspendedEV", "Finishing"}
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -44,6 +42,4 @@ class GivEnergyPluggedInBinarySensor(GivEnergyEvcEntity, BinarySensorEntity):
     def is_on(self) -> bool | None:
         """Return True when a car is plugged in."""
 
-        if self.coordinator.data.status is None:
-            return None
-        return self.coordinator.data.status in _PLUGGED_IN_STATUSES
+        return self.coordinator.data.car_plugged_in
