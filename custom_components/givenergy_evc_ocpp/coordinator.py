@@ -528,6 +528,18 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             total_wh = total_energy_sample["normalized_value"]
             self.data.total_energy_kwh = round(total_wh / 1000, 3)
             if (
+                self.data.transaction_active
+                and self.data.transaction_meter_start_wh is None
+                and total_wh > 0
+            ):
+                _LOGGER.warning(
+                    "Mid-session reconnect detected: using current meter reading %.0f Wh "
+                    "as session baseline (session energy will start from 0)",
+                    total_wh,
+                )
+                self.data.transaction_meter_start_wh = total_wh
+                self.data.session_energy_kwh = 0.0
+            elif (
                 self.data.transaction_meter_start_wh is not None
                 and total_wh >= self.data.transaction_meter_start_wh
             ):
