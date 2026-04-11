@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <clipPath id="roundedClip">
+      <rect x="0" y="0" width="256" height="256" rx="44" ry="44" />
+    </clipPath>
+  </defs>
+
+  <!-- Background: GivEnergy dark green -->
+  <rect x="0" y="0" width="256" height="256" rx="44" ry="44" fill="#1B3D2E" />
+
+  <!-- EV plug body -->
+  <rect x="98" y="28" width="60" height="62" rx="10" ry="10" fill="white" opacity="0.92" />
+  <!-- Plug pins -->
+  <rect x="109" y="15" width="12" height="17" rx="4" ry="4" fill="white" opacity="0.92" />
+  <rect x="135" y="15" width="12" height="17" rx="4" ry="4" fill="white" opacity="0.92" />
+  <!-- Plug cable stub -->
+  <rect x="121" y="90" width="14" height="11" rx="3" ry="3" fill="white" opacity="0.92" />
+
+  <!-- Lightning bolt: GivEnergy yellow-green -->
+  <polygon
+    points="143,108 118,152 133,152 115,196 161,143 142,143 161,108"
+    fill="#C8E832"
+  />
+
+  <!-- Separator line -->
+  <line x1="20" y1="206" x2="236" y2="206" stroke="#C8E832" stroke-width="1.5" opacity="0.35" />
+
+  <!-- "Giv" white, right of centre -->
+  <text
+    x="86"
+    y="232"
+    font-family="'Arial', 'Helvetica Neue', sans-serif"
+    font-size="30"
+    font-weight="700"
+    fill="white"
+    text-anchor="end"
+  >Giv</text>
+
+  <!-- "Energy" yellow-green, left of centre (butt up against Giv) -->
+  <text
+    x="90"
+    y="232"
+    font-family="'Arial', 'Helvetica Neue', sans-serif"
+    font-size="30"
+    font-weight="700"
+    fill="#C8E832"
+    text-anchor="start"
+  >Energy</text>
+
+  <!-- "OCPP" subtitle -->
+  <text
+    x="128"
+    y="251"
+    font-family="'Arial', 'Helvetica Neue', sans-serif"
+    font-size="13"
+    font-weight="400"
+    fill="white"
+    text-anchor="middle"
+    letter-spacing="5"
+    opacity="0.7"
+  >OCPP</text>
+</svg>
