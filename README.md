@@ -29,6 +29,19 @@ It runs a local OCPP server inside Home Assistant so your charger can connect di
   </tbody>
 </table>
 
+## Who is this for?
+
+Let's get this one out of the way early as it's been a recurring question - who exactly is this for?
+
+1. If you currently use GivTCP and it works for you then *this isn't for you* - stick with GivTCP
+2. If you're happy with the "Plug and Go" workaround (providing it doesn't die if/when GivEnergy's servers are taken down) then *this isn't for you*
+
+However...
+
+1. If you want total local control over your EVC with no third party cloud involvement - *THIS IS FOR YOU!*
+2. If you would prefer to use GivTCP but it doesn't work - *THIS IS FOR YOU!*
+3. If you just love tinkering (for now, this change can be undone) - *THIS MAY BE FOR YOU!*
+
 ## Features
 
 - Local OCPP 1.6J listener built into Home Assistant
