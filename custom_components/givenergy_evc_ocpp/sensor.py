@@ -143,7 +143,7 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL_INCREASING,
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=3,
+        suggested_display_precision=2,
         value_fn=lambda coordinator: coordinator.data.total_energy_kwh,
     ),
     GivEnergySensorDescription(

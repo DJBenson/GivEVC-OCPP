@@ -526,7 +526,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         if total_energy_sample and total_energy_sample["normalized_value"] is not None:
             total_wh = total_energy_sample["normalized_value"]
-            self.data.total_energy_kwh = round(total_wh / 1000, 3)
+            self.data.total_energy_kwh = round(total_wh / 1000, 2)
             if (
                 self.data.transaction_active
                 and self.data.transaction_meter_start_wh is None
@@ -599,7 +599,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.session_energy_kwh = round(
                 (meter_stop - self.data.transaction_meter_start_wh) / 1000, 3
             )
-            self.data.total_energy_kwh = round(meter_stop / 1000, 3)
+            self.data.total_energy_kwh = round(meter_stop / 1000, 2)
 
         self.data.transaction_active = False
         self.data.transaction_id = payload.get("transactionId", self.data.transaction_id)
