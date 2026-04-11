@@ -54,6 +54,15 @@ SWITCHES: tuple[GivEnergySwitchDescription, ...] = (
         turn_on_fn=lambda coordinator: coordinator.async_set_local_modbus_enabled(True),
         turn_off_fn=lambda coordinator: coordinator.async_set_local_modbus_enabled(False),
     ),
+    GivEnergySwitchDescription(
+        key="front_panel_leds",
+        translation_key="front_panel_leds",
+        icon="mdi:led-on",
+        entity_category=EntityCategory.CONFIG,
+        is_on_fn=lambda coordinator: coordinator.data.front_panel_leds_enabled,
+        turn_on_fn=lambda coordinator: coordinator.async_set_front_panel_leds_enabled(True),
+        turn_off_fn=lambda coordinator: coordinator.async_set_front_panel_leds_enabled(False),
+    ),
 )
 
 

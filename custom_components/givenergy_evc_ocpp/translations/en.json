@@ -40,12 +40,14 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "car_plugged_in": {
+        "name": "Car plugged in"
+      }
+    },
     "sensor": {
       "charger_status": {
         "name": "Charger status"
-      },
-      "connection_state": {
-        "name": "Connection state"
       },
       "connection_status": {
         "name": "Connection status"
@@ -64,9 +66,6 @@
       },
       "charge_session_energy": {
         "name": "Charge session energy"
-      },
-      "total_energy": {
-        "name": "Total energy"
       },
       "meter_energy": {
         "name": "Meter energy"
@@ -128,6 +127,9 @@
     "number": {
       "current_limit": {
         "name": "Current limit"
+      },
+      "randomised_delay_duration": {
+        "name": "Randomised delay duration"
       }
     },
     "select": {
@@ -144,6 +146,9 @@
       },
       "local_modbus": {
         "name": "Local Modbus"
+      },
+      "front_panel_leds": {
+        "name": "Front panel LEDs"
       }
     }
   }

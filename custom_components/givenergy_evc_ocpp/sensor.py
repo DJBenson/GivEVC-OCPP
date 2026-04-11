@@ -48,6 +48,15 @@ class GivEnergySensorDescription(SensorEntityDescription):
 
 
 SENSORS: tuple[GivEnergySensorDescription, ...] = (
+    # --- Connection / status ---
+    GivEnergySensorDescription(
+        key="connection_status",
+        translation_key="connection_status",
+        icon="mdi:ev-plug-type2",
+        value_fn=lambda coordinator: "Connected"
+        if coordinator.data.connected
+        else "Disconnected",
+    ),
     GivEnergySensorDescription(
         key="charger_status",
         translation_key="charger_status",
@@ -62,34 +71,12 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         },
     ),
     GivEnergySensorDescription(
-        key="connection_state",
-        translation_key="connection_state",
-        icon="mdi:lan-connect",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.data.connection_state,
-        attrs_fn=lambda coordinator: {
-            "last_seen": coordinator.data.last_seen.isoformat()
-            if coordinator.data.last_seen
-            else None,
-            "last_heartbeat": coordinator.data.last_heartbeat.isoformat()
-            if coordinator.data.last_heartbeat
-            else None,
-        },
-    ),
-    GivEnergySensorDescription(
-        key="connection_status",
-        translation_key="connection_status",
-        icon="mdi:ev-plug-type2",
-        value_fn=lambda coordinator: "Connected"
-        if coordinator.data.connected
-        else "Disconnected",
-    ),
-    GivEnergySensorDescription(
         key="operational_status",
         translation_key="operational_status",
         icon="mdi:toggle-switch-outline",
         value_fn=lambda coordinator: coordinator.data.operational_status,
     ),
+    # --- Live measurements ---
     GivEnergySensorDescription(
         key="live_power",
         translation_key="live_power",
@@ -118,38 +105,20 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         value_fn=lambda coordinator: coordinator.data.live_voltage_v,
     ),
     GivEnergySensorDescription(
-        key="charge_session_energy",
-        translation_key="charge_session_energy",
-        device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=3,
-        value_fn=lambda coordinator: coordinator.data.session_energy_kwh,
-    ),
-    GivEnergySensorDescription(
-        key="total_energy",
-        translation_key="total_energy",
-        device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=3,
-        value_fn=lambda coordinator: coordinator.data.total_energy_kwh,
-    ),
-    GivEnergySensorDescription(
-        key="meter_energy",
-        translation_key="meter_energy",
-        device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        suggested_display_precision=3,
-        value_fn=lambda coordinator: coordinator.data.total_energy_kwh,
-    ),
-    GivEnergySensorDescription(
         key="current_limit",
         translation_key="current_limit",
         icon="mdi:current-ac",
         native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
         suggested_display_precision=1,
         value_fn=lambda coordinator: coordinator.data.current_limit_a,
+    ),
+    GivEnergySensorDescription(
+        key="evse_min_current",
+        translation_key="evse_min_current",
+        icon="mdi:current-ac",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        suggested_display_precision=1,
+        value_fn=lambda coordinator: DEFAULT_EVSE_MIN_CURRENT,
     ),
     GivEnergySensorDescription(
         key="evse_max_current",
@@ -159,13 +128,23 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         suggested_display_precision=1,
         value_fn=lambda coordinator: DEFAULT_EVSE_MAX_CURRENT,
     ),
+    # --- Session data ---
     GivEnergySensorDescription(
-        key="evse_min_current",
-        translation_key="evse_min_current",
-        icon="mdi:current-ac",
-        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-        suggested_display_precision=1,
-        value_fn=lambda coordinator: DEFAULT_EVSE_MIN_CURRENT,
+        key="charge_session_energy",
+        translation_key="charge_session_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=3,
+        value_fn=lambda coordinator: coordinator.data.session_energy_kwh,
+    ),
+    GivEnergySensorDescription(
+        key="meter_energy",
+        translation_key="meter_energy",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=3,
+        value_fn=lambda coordinator: coordinator.data.total_energy_kwh,
     ),
     GivEnergySensorDescription(
         key="charge_start_time",
@@ -188,8 +167,26 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         translation_key="charge_session_duration",
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.SECONDS,
-        suggested_display_precision=0,
+        suggested_unit_of_measurement=UnitOfTime.MINUTES,
+        suggested_display_precision=1,
         value_fn=lambda coordinator: coordinator.data.session_duration_seconds,
+    ),
+    # --- Diagnostic sensors ---
+    GivEnergySensorDescription(
+        key="last_seen",
+        translation_key="last_seen",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.data.last_seen,
+    ),
+    GivEnergySensorDescription(
+        key="heartbeat_age",
+        translation_key="heartbeat_age",
+        icon="mdi:timer-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        value_fn=lambda coordinator: coordinator.data.heartbeat_age_seconds,
     ),
     GivEnergySensorDescription(
         key="error_code",
@@ -225,22 +222,6 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         value_fn=lambda coordinator: coordinator.data.meter_value_sample_interval_seconds,
-    ),
-    GivEnergySensorDescription(
-        key="heartbeat_age",
-        translation_key="heartbeat_age",
-        icon="mdi:timer-outline",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        value_fn=lambda coordinator: coordinator.data.heartbeat_age_seconds,
-    ),
-    GivEnergySensorDescription(
-        key="last_seen",
-        translation_key="last_seen",
-        device_class=SensorDeviceClass.TIMESTAMP,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda coordinator: coordinator.data.last_seen,
     ),
 )
 

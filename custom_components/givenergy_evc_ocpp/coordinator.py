@@ -84,6 +84,8 @@ class GivEnergyEvcState:
     charger_enabled: bool | None = None
     charge_mode: str | None = None
     local_modbus_enabled: bool | None = None
+    front_panel_leds_enabled: bool | None = None
+    randomised_delay_duration_seconds: int | None = None
     supported_feature_profiles: list[str] = field(default_factory=list)
     configuration: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_boot_notification: dict[str, Any] | None = None
@@ -772,6 +774,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.local_modbus_enabled = self._coerce_bool(
             self._configuration_value("EnableLocalModbus")
         )
+        self.data.front_panel_leds_enabled = self._coerce_bool(
+            self._configuration_value("FrontPanelLEDsEnabled")
+        )
+        self.data.randomised_delay_duration_seconds = self._coerce_int(
+            self._configuration_value("RandomisedDelayDuration")
+        )
         self._publish_state()
         return result
 
@@ -843,6 +851,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 self.data.meter_value_sample_interval_seconds = self._coerce_int(value)
             if key == "EnableLocalModbus":
                 self.data.local_modbus_enabled = self._coerce_bool(value)
+            if key == "FrontPanelLEDsEnabled":
+                self.data.front_panel_leds_enabled = self._coerce_bool(value)
+            if key == "RandomisedDelayDuration":
+                self.data.randomised_delay_duration_seconds = self._coerce_int(value)
 
         self._publish_state()
         return result
@@ -954,7 +966,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         await self.async_record_command_result("ChangeAvailability", result)
         self.data.charger_enabled = operative
-        self.data.operational_status = "operative" if operative else "inoperative"
+        self.data.operational_status = "Operative" if operative else "Inoperative"
         self._publish_state()
         return result
 
@@ -990,6 +1002,20 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         return await self.async_change_configuration(
             "EnableLocalModbus", str(enabled).lower()
+        )
+
+    async def async_set_front_panel_leds_enabled(self, enabled: bool) -> dict[str, Any]:
+        """Enable or disable the charger's front panel LEDs."""
+
+        return await self.async_change_configuration(
+            "FrontPanelLEDsEnabled", str(enabled).lower()
+        )
+
+    async def async_set_randomised_delay_duration(self, seconds: int) -> dict[str, Any]:
+        """Set the charger's randomised delay duration."""
+
+        return await self.async_change_configuration(
+            "RandomisedDelayDuration", int(seconds)
         )
 
     async def async_start_charging(self) -> dict[str, Any]:
@@ -1047,10 +1073,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if status is None:
             return None
         if status == "Unavailable":
-            return "inoperative"
+            return "Inoperative"
         if status == "Faulted":
-            return "faulted"
-        return "operative"
+            return "Faulted"
+        return "Operative"
 
     async def _async_upsert_device(self) -> None:
         """Create or update the charger device."""

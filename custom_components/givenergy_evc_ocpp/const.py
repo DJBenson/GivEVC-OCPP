@@ -27,6 +27,7 @@ CONF_METER_VALUE_SAMPLE_INTERVAL = "meter_value_sample_interval_seconds"
 DEFAULT_REMOTE_ID_TAG = "HA-REMOTE"
 
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.SENSOR,
     Platform.BUTTON,
     Platform.NUMBER,

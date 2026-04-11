@@ -24,6 +24,14 @@ class GivEnergyButtonDescription(ButtonEntityDescription):
 
 
 BUTTONS: tuple[GivEnergyButtonDescription, ...] = (
+    # --- Config buttons ---
+    GivEnergyButtonDescription(
+        key="unlock_connector",
+        translation_key="unlock_connector",
+        icon="mdi:lock-open-variant-outline",
+        entity_category=EntityCategory.CONFIG,
+        press_fn=lambda coordinator: coordinator.async_unlock_connector(),
+    ),
     GivEnergyButtonDescription(
         key="reset_soft",
         translation_key="reset_soft",
@@ -38,13 +46,7 @@ BUTTONS: tuple[GivEnergyButtonDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.async_reset("Hard"),
     ),
-    GivEnergyButtonDescription(
-        key="unlock_connector",
-        translation_key="unlock_connector",
-        icon="mdi:lock-open-variant-outline",
-        entity_category=EntityCategory.CONFIG,
-        press_fn=lambda coordinator: coordinator.async_unlock_connector(),
-    ),
+    # --- Diagnostic buttons ---
     GivEnergyButtonDescription(
         key="trigger_meter_values",
         translation_key="trigger_meter_values",
