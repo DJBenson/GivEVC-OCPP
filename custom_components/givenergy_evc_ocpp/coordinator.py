@@ -873,11 +873,16 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.configuration[key]["value"] = str(value)
 
             if key in {"ChargeRate", "Imax", "MaxCurrent"}:
-                self.data.current_limit_a = self._sanitize_current_limit_value(
-                    value,
-                    fallback=self.data.current_limit_a,
-                    config_key=key,
-                )
+                if key == "ChargeRate":
+                    encoded_amperage = self._coerce_float(value)
+                    if encoded_amperage is not None:
+                        self.data.current_limit_a = round(encoded_amperage / 10, 1)
+                else:
+                    self.data.current_limit_a = self._sanitize_current_limit_value(
+                        value,
+                        fallback=self.data.current_limit_a,
+                        config_key=key,
+                    )
             if key == "EcoMode":
                 self.data.charge_mode = self._normalize_charge_mode(value)
             if key == "MeterValueSampleInterval":
@@ -1018,8 +1023,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             else "MaxCurrent"
         )
         value: float = round(amperage, 1)
+        # GivEnergy expects ChargeRate writes in tenths of amps, but reports the
+        # stored value back in real amps via GetConfiguration.
         if key == "ChargeRate":
-            value = round(amperage / 10, 1)
+            value = round(amperage * 10, 1)
         return await self.async_change_configuration(key, value)
 
     async def async_set_charge_mode(self, mode: str) -> dict[str, Any]:
@@ -1232,11 +1239,6 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         amperage = self._coerce_float(value)
         if amperage is None:
             return fallback
-
-        if config_key == "ChargeRate":
-            scaled_amperage = amperage * 10
-            if DEFAULT_EVSE_MIN_CURRENT <= scaled_amperage <= DEFAULT_EVSE_MAX_CURRENT:
-                return round(scaled_amperage, 1)
 
         if DEFAULT_EVSE_MIN_CURRENT <= amperage <= DEFAULT_EVSE_MAX_CURRENT:
             return round(amperage, 1)
