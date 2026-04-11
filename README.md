@@ -157,7 +157,7 @@ Depending on what the charger reports, Home Assistant can expose:
 - `Charge now` - switch
 - `Charger enabled` - switch
 - `Plug and Go` - switch
-- `Local Modbus` - switch
+- `Local Modbus` - switch (_yes_, it still supports local modbus, the limitations (modbus on ethernet only active after ~10 minutes) still apply...) So GivTCP can still read/control the EVC if you do this.
 - `Front panel LEDs` - switch
 - `Charge mode` - select
 - `Soft reset` - button
