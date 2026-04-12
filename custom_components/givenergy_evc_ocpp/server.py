@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from aiohttp import web
 from homeassistant.core import HomeAssistant
@@ -14,9 +13,6 @@ from .coordinator import GivEnergyEvcCoordinator
 from .const import DEFAULT_LISTEN_HOST, WEBSOCKET_SUBPROTOCOL
 
 _LOGGER = logging.getLogger(__name__)
-
-_FIRMWARE_PREFIX = "/firmware/"
-
 
 class GivEnergyOcppServer:
     """Manage the dedicated inbound OCPP websocket listener."""
@@ -31,9 +27,6 @@ class GivEnergyOcppServer:
         self.hass = hass
         self.coordinator = coordinator
         self._app = web.Application()
-        self._app.router.add_get(
-            _FIRMWARE_PREFIX + "{filename}", self._async_handle_firmware_download
-        )
         self._app.router.add_get("/", self._async_handle_websocket)
         self._app.router.add_get("/{charge_point_id:.*}", self._async_handle_websocket)
         self._runner: web.AppRunner | None = None
@@ -69,11 +62,6 @@ class GivEnergyOcppServer:
             self._runner = None
             self._site = None
 
-    def firmware_http_base_url(self, host: str) -> str:
-        """Return the base HTTP URL for firmware downloads via this server."""
-
-        return f"http://{host}:{self.coordinator.listen_port}{_FIRMWARE_PREFIX}"
-
     async def async_send_call(
         self, action: str, payload: dict, timeout: int
     ) -> dict[str, object]:
@@ -82,31 +70,6 @@ class GivEnergyOcppServer:
         if self._session is None:
             raise HomeAssistantError("No GivEnergy charger is currently connected")
         return await self._session.async_call(action, payload, timeout=timeout)
-
-    async def _async_handle_firmware_download(
-        self, request: web.Request
-    ) -> web.StreamResponse:
-        """Serve a firmware file by name from the integration firmware directory."""
-
-        filename = request.match_info["filename"]
-        # Reject any path traversal attempts
-        if "/" in filename or "\\" in filename or filename.startswith("."):
-            return web.Response(status=400, text="Invalid filename")
-
-        firmware_dir: Path = self.coordinator.firmware_directory
-        file_path = firmware_dir / filename
-
-        if not file_path.exists() or not file_path.is_file():
-            _LOGGER.warning("Firmware HTTP request for unknown file: %s", filename)
-            return web.Response(status=404, text="Firmware file not found")
-
-        _LOGGER.info(
-            "Serving firmware file %s (%d bytes) to %s",
-            filename,
-            file_path.stat().st_size,
-            request.remote,
-        )
-        return web.FileResponse(file_path)
 
     async def _async_handle_websocket(self, request: web.Request) -> web.StreamResponse:
         """Accept a websocket request from the charger."""

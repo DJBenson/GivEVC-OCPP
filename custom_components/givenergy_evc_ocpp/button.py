@@ -77,7 +77,6 @@ async def async_setup_entry(
         [
             *(GivEnergyEvcButton(coordinator, description) for description in BUTTONS),
             GivEnergyInstallSelectedFirmwareButton(coordinator),
-            GivEnergyInstallSelectedFirmwareHttpButton(coordinator),
         ]
     )
 
@@ -123,14 +122,14 @@ class GivEnergyInstallSelectedFirmwareButton(GivEnergyEvcEntity, ButtonEntity):
 
     @property
     def available(self) -> bool:
-        """Only expose installation when the charger and FTP server are ready."""
+        """Only expose installation when the charger and firmware server are ready."""
 
         return (
             super().available
             and self.coordinator.data.connected
-            and self.coordinator.data.firmware_ftp_running
+            and self.coordinator.data.firmware_server_running
             and self.coordinator.data.selected_firmware_file is not None
-            and self.coordinator.data.firmware_ftp_host is not None
+            and self.coordinator.data.firmware_server_host is not None
         )
 
     @property
@@ -139,57 +138,11 @@ class GivEnergyInstallSelectedFirmwareButton(GivEnergyEvcEntity, ButtonEntity):
 
         return {
             "selected_file": self.coordinator.data.selected_firmware_file,
-            "ftp_host": self.coordinator.data.firmware_ftp_host,
-            "ftp_port": self.coordinator.firmware_ftp_port,
+            "server_host": self.coordinator.data.firmware_server_host,
+            "server_port": self.coordinator.firmware_server_port,
         }
 
     async def async_press(self) -> None:
         """Trigger a firmware update from the selected bundled file."""
 
         await self.coordinator.async_install_selected_firmware()
-
-
-class GivEnergyInstallSelectedFirmwareHttpButton(GivEnergyEvcEntity, ButtonEntity):
-    """Button that sends UpdateFirmware using HTTP on the OCPP port."""
-
-    _attr_translation_key = "install_selected_firmware_http"
-    _attr_icon = "mdi:download-circle-outline"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
-        """Initialise the button."""
-
-        super().__init__(coordinator, "install_selected_firmware_http")
-
-    @property
-    def available(self) -> bool:
-        """Only expose when the charger is connected and a file is selected."""
-
-        return (
-            super().available
-            and self.coordinator.data.connected
-            and self.coordinator.data.selected_firmware_file is not None
-            and self.coordinator.data.firmware_ftp_host is not None
-        )
-
-    @property
-    def extra_state_attributes(self) -> dict[str, str | int | None]:
-        """Return the generated firmware URL ingredients."""
-
-        host = self.coordinator.data.firmware_ftp_host
-        url = (
-            self.coordinator.server.firmware_http_base_url(host)
-            if host and self.coordinator.server is not None
-            else None
-        )
-        return {
-            "selected_file": self.coordinator.data.selected_firmware_file,
-            "http_host": host,
-            "http_port": self.coordinator.listen_port,
-            "http_url": url,
-        }
-
-    async def async_press(self) -> None:
-        """Trigger a firmware update via HTTP from the selected bundled file."""
-
-        await self.coordinator.async_install_selected_firmware_http()

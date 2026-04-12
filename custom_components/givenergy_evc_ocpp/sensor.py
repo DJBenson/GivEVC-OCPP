@@ -237,15 +237,12 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
             "last_update_firmware_result": coordinator.data.last_command_results.get(
                 "UpdateFirmware"
             ),
-            "ftp_server_running": coordinator.data.firmware_ftp_running,
-            "ftp_host": coordinator.data.firmware_ftp_host,
-            "ftp_port": coordinator.firmware_ftp_port,
-            "ftp_passive_ports": (
-                f"{coordinator.firmware_ftp_passive_ports.start}-"
-                f"{coordinator.firmware_ftp_passive_ports.stop - 1}"
-            ),
-            "ftp_last_transfer": coordinator.data.firmware_ftp_last_transfer,
-            "ftp_events": coordinator.data.firmware_ftp_events,
+            "server_running": coordinator.data.firmware_server_running,
+            "server_host": coordinator.data.firmware_server_host,
+            "server_port": coordinator.firmware_server_port,
+            "selected_file": coordinator.data.selected_firmware_file,
+            "last_transfer": coordinator.data.firmware_server_last_transfer,
+            "server_events": coordinator.data.firmware_server_events,
         },
     ),
 )

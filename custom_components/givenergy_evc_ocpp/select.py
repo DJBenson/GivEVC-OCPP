@@ -67,7 +67,7 @@ class GivEnergyChargeModeSelect(GivEnergyEvcEntity, SelectEntity):
 
 
 class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
-    """Select entity for bundled firmware files served over FTP."""
+    """Select entity for bundled firmware files served by the local transfer server."""
 
     _attr_translation_key = "firmware_file"
     _attr_icon = "mdi:file-download-outline"
@@ -80,9 +80,9 @@ class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
 
     @property
     def available(self) -> bool:
-        """Only expose the firmware list while the local FTP server is running."""
+        """Only expose the firmware list while the local transfer server is running."""
 
-        return self.coordinator.data.firmware_ftp_running
+        return self.coordinator.data.firmware_server_running
 
     @property
     def current_option(self) -> str | None:

@@ -30,7 +30,7 @@ from .const import (
     SERVICE_UPDATE_FIRMWARE,
 )
 from .coordinator import GivEnergyEvcCoordinator
-from .ftp_server import GivEnergyFirmwareFtpServer
+from .firmware_transfer_server import GivEnergyFirmwareTransferServer
 from .server import GivEnergyOcppServer
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class GivEnergyRuntimeData:
 
     coordinator: GivEnergyEvcCoordinator
     server: GivEnergyOcppServer
-    firmware_ftp_server: GivEnergyFirmwareFtpServer
+    firmware_server: GivEnergyFirmwareTransferServer
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -63,11 +63,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     reload_state = hass.data[DOMAIN].get(RELOAD_STATE_KEY, {}).pop(entry.entry_id, None)
     coordinator.restore_reload_state(reload_state)
     server = GivEnergyOcppServer(hass, coordinator)
-    firmware_ftp_server = GivEnergyFirmwareFtpServer(
+    firmware_server = GivEnergyFirmwareTransferServer(
         hass, coordinator.firmware_directory
     )
     coordinator.set_server(server)
-    coordinator.set_firmware_ftp_server(firmware_ftp_server)
+    coordinator.set_firmware_server(firmware_server)
 
     try:
         await server.async_start()
@@ -81,7 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     runtime_data = GivEnergyRuntimeData(
         coordinator=coordinator,
         server=server,
-        firmware_ftp_server=firmware_ftp_server,
+        firmware_server=firmware_server,
     )
     entry.runtime_data = runtime_data
     hass.data[DOMAIN][entry.entry_id] = runtime_data
@@ -103,7 +103,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await runtime.server.async_stop()
-    await runtime.firmware_ftp_server.async_stop()
+    await runtime.firmware_server.async_stop()
     await runtime.coordinator.async_stop()
 
     hass.data[DOMAIN].pop(entry.entry_id, None)
