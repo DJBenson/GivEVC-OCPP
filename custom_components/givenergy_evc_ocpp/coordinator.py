@@ -157,6 +157,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.firmware_server: Any = None
         self._unsub_timer: CALLBACK_TYPE | None = None
         self._next_transaction_id = 1
+        self._firmware_server_auto_stop_task = None
         self._store = Store[dict[str, Any]](
             hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_state"
         )
@@ -346,6 +347,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self._unsub_timer()
             self._unsub_timer = None
 
+        if self._firmware_server_auto_stop_task is not None:
+            self._firmware_server_auto_stop_task.cancel()
+            self._firmware_server_auto_stop_task = None
+
         self.data.firmware_server_running = False
 
     @property
@@ -434,6 +439,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Return the directory served by the local firmware transfer server."""
 
         return Path(__file__).resolve().parent / "firmware"
+
+    @property
+    def firmware_update_in_progress(self) -> bool:
+        """Return whether a firmware update is currently active."""
+
+        return self._firmware_update_in_progress()
 
     @property
     def desired_meter_value_sample_interval(self) -> int:
@@ -1234,6 +1245,11 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     ) -> dict[str, Any]:
         """Issue an UpdateFirmware command."""
 
+        if self._firmware_update_in_progress():
+            raise HomeAssistantError(
+                "A firmware update is already in progress; wait for it to complete or fail before starting another"
+            )
+
         payload: dict[str, Any] = {
             "location": location,
             "retrieveDate": retrieve_date,
@@ -1320,6 +1336,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 raise HomeAssistantError(
                     "No bundled firmware files were found in the integration firmware directory"
                 )
+            self._clear_firmware_update_session()
             try:
                 await self.firmware_server.async_start(self.firmware_server_port)
             except HomeAssistantError as err:
@@ -1407,6 +1424,40 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.firmware_update_last_transfer_event = None
         self.data.firmware_update_expected_reconnect_by = None
 
+    def _clear_firmware_update_session(self) -> None:
+        """Clear the local firmware update session and raw firmware sensor state."""
+
+        self.data.firmware_status = None
+        self.data.firmware_update_state = None
+        self.data.firmware_update_target_file = None
+        self.data.firmware_update_target_version = None
+        self.data.firmware_update_previous_version = None
+        self.data.firmware_update_started_at = None
+        self.data.firmware_update_download_completed_at = None
+        self.data.firmware_update_install_started_at = None
+        self.data.firmware_update_completed_at = None
+        self.data.firmware_update_failure_reason = None
+        self.data.firmware_update_last_ocpp_status = None
+        self.data.firmware_update_last_transfer_event = None
+        self.data.firmware_update_expected_reconnect_by = None
+        self.data.last_update_firmware_request = None
+        self.data.last_command_results.pop("FirmwareStatusNotification", None)
+        self.data.last_command_results.pop("UpdateFirmware", None)
+        self.data.firmware_server_last_transfer = None
+        self.data.firmware_server_events = []
+
+    def _firmware_update_in_progress(self) -> bool:
+        """Return whether a firmware update session is currently active."""
+
+        if self.data.firmware_update_state in {"Downloading", "Downloaded", "Installing"}:
+            return True
+
+        return (
+            self.data.firmware_update_started_at is not None
+            and self.data.firmware_update_completed_at is None
+            and self.data.firmware_update_failure_reason is None
+        )
+
     def _apply_firmware_ocpp_status(self, status: str | None) -> None:
         """Advance the local firmware update state from OCPP status events."""
 
@@ -1442,6 +1493,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.firmware_update_completed_at = now
             self.data.firmware_update_failure_reason = None
             self.data.firmware_update_expected_reconnect_by = None
+            self._schedule_firmware_server_auto_stop()
             return
 
         if normalized in {
@@ -1528,6 +1580,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.firmware_update_completed_at = datetime.now(UTC)
             self.data.firmware_update_failure_reason = None
             self.data.firmware_update_expected_reconnect_by = None
+            self._schedule_firmware_server_auto_stop()
 
     @staticmethod
     def _derive_firmware_version_from_filename(filename: str | None) -> str | None:
@@ -1827,6 +1880,30 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 self.data.firmware_update_completed_at = now
                 self.data.firmware_update_failure_reason = "install_timeout"
                 self.data.firmware_update_expected_reconnect_by = None
+
+    def _schedule_firmware_server_auto_stop(self) -> None:
+        """Stop the firmware server automatically after a confirmed successful install."""
+
+        if not self.data.firmware_server_running or self.firmware_server is None:
+            return
+        if self._firmware_server_auto_stop_task is not None:
+            return
+        self._firmware_server_auto_stop_task = self.hass.async_create_task(
+            self._async_auto_stop_firmware_server()
+        )
+
+    async def _async_auto_stop_firmware_server(self) -> None:
+        """Disable the firmware server after a successful update confirmation."""
+
+        try:
+            await self.async_set_firmware_server_enabled(False)
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "Unable to auto-stop firmware server after successful firmware update: %s",
+                err,
+            )
+        finally:
+            self._firmware_server_auto_stop_task = None
 
     @staticmethod
     def _parse_ocpp_timestamp(value: Any) -> datetime | None:

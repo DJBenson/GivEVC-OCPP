@@ -130,6 +130,7 @@ class GivEnergyInstallSelectedFirmwareButton(GivEnergyEvcEntity, ButtonEntity):
             and self.coordinator.data.firmware_server_running
             and self.coordinator.data.selected_firmware_file is not None
             and self.coordinator.data.firmware_server_host is not None
+            and not self.coordinator.firmware_update_in_progress
         )
 
     @property
