@@ -49,6 +49,7 @@ However...
 - Auto-adopts the first charger that connects
 - Live charger sensors for status, power, current, voltage, session energy, total energy, and more
 - Charger controls such as start/stop charging, reset, unlock connector, current limit, charge mode, and charger availability
+- Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
 
 ## Installation
 
@@ -165,6 +166,36 @@ Depending on what the charger reports, Home Assistant can expose:
 - `Unlock connector` - button
 - `Trigger meter values` - button
 - `Refresh configuration` - button
+
+## Firmware management
+
+The integration ships with an integrated firmware management tool which is disabled by default. When enabled, you can choose from one of three firmware versions currently shipped with the integration (1.12-1.14) and apply the update directly to the EVC from within the integration!
+
+1. Ensure you are running at least version 0.2.0 of the integration
+2. Enable the "Firmware server" toggle
+3. Select one of the versions from the drop down list
+4. Click on the "Install selected firmware" button
+5. Wait! Keep an eye on the Firmware Status sensor - all being well it should go from Downloading -> Downloaded -> Installing -> Installed within a couple of minutes
+6. Check the version number at the top left hand corner of the integration once the sensor shows ```Installed```.
+
+<table>
+  <thead>
+    <tr>
+      <th>Configuration</th>
+      <th>Diagnostic</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td valign="top">
+        <img width="319" height="826" alt="image" src="https://github.com/user-attachments/assets/cb9932db-94ba-40a6-877d-9cd737f78844" />
+      </td>
+      <td valign="top">
+        <img width="321" height="178" alt="image" src="https://github.com/user-attachments/assets/22e3583d-4467-4bcd-9c86-e61b79d752b1" />
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 ## Diagnostics
 
