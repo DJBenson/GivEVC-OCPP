@@ -197,6 +197,8 @@ The integration ships with an integrated firmware management tool which is disab
   </tbody>
 </table>
 
+WARNING! Use this at your own risk! I accept no liability if you brick your device (unlikely but needs to be said). Several people have upgraded their chargers to the latest version using this integration (and I've tested downgrading) but it's on you if it bricks your charger.
+
 ## Diagnostics
 
 This integration keeps more raw charger data than the stock OCPP integration so charger behavior is easier to debug.
