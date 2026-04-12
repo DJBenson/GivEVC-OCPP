@@ -84,7 +84,12 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
-    async_add_entities(GivEnergyEvcSwitch(coordinator, description) for description in SWITCHES)
+    async_add_entities(
+        [
+            *(GivEnergyEvcSwitch(coordinator, description) for description in SWITCHES),
+            GivEnergyFirmwareServerSwitch(coordinator),
+        ]
+    )
 
 
 class GivEnergyEvcSwitch(GivEnergyEvcEntity, SwitchEntity):
@@ -125,3 +130,55 @@ class GivEnergyEvcSwitch(GivEnergyEvcEntity, SwitchEntity):
 
         del kwargs
         await self.entity_description.turn_off_fn(self.coordinator)
+
+
+class GivEnergyFirmwareServerSwitch(GivEnergyEvcEntity, SwitchEntity):
+    """Switch controlling the local firmware transfer server."""
+
+    _attr_translation_key = "firmware_server"
+    _attr_icon = "mdi:folder-network-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
+        """Initialise the switch."""
+
+        super().__init__(coordinator, "firmware_server")
+
+    @property
+    def available(self) -> bool:
+        """The firmware server can be managed whenever the integration is loaded."""
+
+        return True
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return whether the firmware server is running."""
+
+        return self.coordinator.data.firmware_server_running
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return firmware server diagnostics."""
+
+        return {
+            "server_host": self.coordinator.data.firmware_server_host,
+            "server_port": self.coordinator.firmware_server_port,
+            "firmware_directory": str(self.coordinator.firmware_directory),
+            "selected_file": self.coordinator.data.selected_firmware_file,
+            "available_files": self.coordinator.data.available_firmware_files,
+            "last_error": self.coordinator.data.firmware_server_error,
+            "last_transfer": self.coordinator.data.firmware_server_last_transfer,
+            "recent_events": self.coordinator.data.firmware_server_events[-10:],
+        }
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Start the firmware transfer server."""
+
+        del kwargs
+        await self.coordinator.async_set_firmware_server_enabled(True)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Stop the firmware transfer server."""
+
+        del kwargs
+        await self.coordinator.async_set_firmware_server_enabled(False)

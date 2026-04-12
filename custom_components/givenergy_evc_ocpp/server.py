@@ -14,7 +14,6 @@ from .const import DEFAULT_LISTEN_HOST, WEBSOCKET_SUBPROTOCOL
 
 _LOGGER = logging.getLogger(__name__)
 
-
 class GivEnergyOcppServer:
     """Manage the dedicated inbound OCPP websocket listener."""
 
@@ -76,6 +75,11 @@ class GivEnergyOcppServer:
         """Accept a websocket request from the charger."""
 
         candidate_id = request.match_info.get("charge_point_id", "").strip("/") or None
+        local_host = None
+        if request.transport is not None:
+            sockname = request.transport.get_extra_info("sockname")
+            if isinstance(sockname, tuple) and sockname:
+                local_host = str(sockname[0])
 
         if not self.coordinator.can_accept_charge_point(candidate_id):
             await self.coordinator.async_note_rejected_charge_point(candidate_id)
@@ -100,7 +104,7 @@ class GivEnergyOcppServer:
             self.hass, websocket, self.coordinator, candidate_id
         )
         self._session = session
-        await self.coordinator.async_connection_opened(candidate_id)
+        await self.coordinator.async_connection_opened(candidate_id, local_host)
 
         try:
             await session.run()

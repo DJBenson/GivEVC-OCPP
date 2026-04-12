@@ -1,0 +1,27 @@
+{
+  "models": {
+    "AC_GL1": {
+      "latest": "1.14",
+      "versions": {
+        "1.14": {
+          "filename": "AC_GL1_1.14.bin",
+          "url": "https://github.com/DJBenson/giv-firmware/releases/download/1.0/AC_GL1_1.14.bin",
+          "size": 317400,
+          "checksum_md5": "4d9c952cadf6d9a5b34c956f3a1c872b"
+        },
+        "1.13": {
+          "filename": "AC_GL1_1.13.bin",
+          "url": "https://github.com/DJBenson/giv-firmware/releases/download/1.0/AC_GL1_1.13.bin",
+          "size": 331096,
+          "checksum_md5": "dee3bd5c2f694957047b87f819493940"
+        },
+        "1.12": {
+          "filename": "AC_GL1_1.12.bin",
+          "url": "https://github.com/DJBenson/giv-firmware/releases/download/1.0/AC_GL1_1.12.bin",
+          "size": 340648,
+          "checksum_md5": "533b15b8a7c5a7dc0f7d11fa7ea0e639"
+        }
+      }
+    }
+  }
+}

@@ -223,6 +223,54 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         value_fn=lambda coordinator: coordinator.data.meter_value_sample_interval_seconds,
     ),
+    GivEnergySensorDescription(
+        key="firmware_status",
+        translation_key="firmware_status",
+        icon="mdi:download-network-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.data.firmware_update_state
+        or coordinator.data.firmware_status,
+        attrs_fn=lambda coordinator: {
+            "derived_state": coordinator.data.firmware_update_state,
+            "raw_ocpp_status": coordinator.data.firmware_status,
+            "last_update_firmware_request": coordinator.data.last_update_firmware_request,
+            "last_firmware_status_notification": coordinator.data.last_command_results.get(
+                "FirmwareStatusNotification"
+            ),
+            "last_update_firmware_result": coordinator.data.last_command_results.get(
+                "UpdateFirmware"
+            ),
+            "target_file": coordinator.data.firmware_update_target_file,
+            "target_version": coordinator.data.firmware_update_target_version,
+            "previous_version": coordinator.data.firmware_update_previous_version,
+            "current_version": coordinator.data.firmware_version,
+            "started_at": _format_local_timestamp(
+                coordinator.data.firmware_update_started_at
+            ),
+            "download_completed_at": _format_local_timestamp(
+                coordinator.data.firmware_update_download_completed_at
+            ),
+            "install_started_at": _format_local_timestamp(
+                coordinator.data.firmware_update_install_started_at
+            ),
+            "completed_at": _format_local_timestamp(
+                coordinator.data.firmware_update_completed_at
+            ),
+            "failure_reason": coordinator.data.firmware_update_failure_reason,
+            "last_transfer_event": coordinator.data.firmware_update_last_transfer_event,
+            "last_ocpp_status": coordinator.data.firmware_update_last_ocpp_status,
+            "expected_reconnect_by": _format_local_timestamp(
+                coordinator.data.firmware_update_expected_reconnect_by
+            ),
+            "charger_online": coordinator.data.connected,
+            "server_running": coordinator.data.firmware_server_running,
+            "server_host": coordinator.data.firmware_server_host,
+            "server_port": coordinator.firmware_server_port,
+            "selected_file": coordinator.data.selected_firmware_file,
+            "last_transfer": coordinator.data.firmware_server_last_transfer,
+            "server_events": coordinator.data.firmware_server_events,
+        },
+    ),
 )
 
 

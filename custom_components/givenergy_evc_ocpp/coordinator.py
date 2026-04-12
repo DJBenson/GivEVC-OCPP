@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 import logging
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
@@ -25,12 +27,15 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_EXPECTED_CHARGE_POINT_ID,
+    CONF_FIRMWARE_SERVER_PORT,
+    LEGACY_CONF_FIRMWARE_FTP_PORT,
     CONF_LISTEN_PORT,
     CONF_METER_VALUE_SAMPLE_INTERVAL,
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_EVSE_MAX_CURRENT,
     DEFAULT_EVSE_MIN_CURRENT,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_SERVER_PORT,
     GIVENERGY_CHARGE_MODES,
     DEFAULT_METER_VALUE_SAMPLE_INTERVAL,
     DEFAULT_REMOTE_ID_TAG,
@@ -41,6 +46,10 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
+FIRMWARE_DOWNLOADING_TIMEOUT = timedelta(minutes=10)
+FIRMWARE_INSTALLING_TIMEOUT = timedelta(minutes=15)
+FIRMWARE_INSTALL_DISCONNECT_GRACE = timedelta(minutes=2)
+FIRMWARE_INSTALL_QUIET_GRACE = timedelta(seconds=90)
 
 
 @dataclass(slots=True)
@@ -61,6 +70,26 @@ class GivEnergyEvcState:
     status: str | None = None
     operational_status: str | None = None
     firmware_status: str | None = None
+    firmware_update_state: str | None = None
+    firmware_update_target_file: str | None = None
+    firmware_update_target_version: str | None = None
+    firmware_update_previous_version: str | None = None
+    firmware_update_started_at: datetime | None = None
+    firmware_update_download_completed_at: datetime | None = None
+    firmware_update_install_started_at: datetime | None = None
+    firmware_update_completed_at: datetime | None = None
+    firmware_update_failure_reason: str | None = None
+    firmware_update_last_ocpp_status: str | None = None
+    firmware_update_last_transfer_event: str | None = None
+    firmware_update_expected_reconnect_by: datetime | None = None
+    firmware_server_enabled: bool = False
+    firmware_server_running: bool = False
+    firmware_server_host: str | None = None
+    firmware_server_error: str | None = None
+    firmware_server_last_transfer: dict[str, Any] | None = None
+    selected_firmware_file: str | None = None
+    available_firmware_files: list[str] = field(default_factory=list)
+    firmware_server_events: list[dict[str, Any]] = field(default_factory=list)
     diagnostics_status: str | None = None
     error_code: str | None = None
     vendor_error_code: str | None = None
@@ -94,6 +123,7 @@ class GivEnergyEvcState:
     last_status_notification: dict[str, Any] | None = None
     last_meter_values: dict[str, Any] | None = None
     last_get_configuration: dict[str, Any] | None = None
+    last_update_firmware_request: dict[str, Any] | None = None
     last_command_results: dict[str, Any] = field(default_factory=dict)
     meter_samples: list[dict[str, Any]] = field(default_factory=list)
     parsed_meter_values: dict[str, Any] = field(default_factory=dict)
@@ -124,8 +154,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.entry = entry
         self.data = GivEnergyEvcState()
         self.server: Any = None
+        self.firmware_server: Any = None
         self._unsub_timer: CALLBACK_TYPE | None = None
         self._next_transaction_id = 1
+        self._firmware_server_auto_stop_task = None
         self._store = Store[dict[str, Any]](
             hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_state"
         )
@@ -150,6 +182,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "last_boot_notification": self.data.last_boot_notification,
             "car_plugged_in": self.data.car_plugged_in,
             "plug_and_go_enabled": self.data.plug_and_go_enabled,
+            "firmware_update_state": self.data.firmware_update_state,
+            "firmware_update_target_file": self.data.firmware_update_target_file,
+            "firmware_update_target_version": self.data.firmware_update_target_version,
+            "firmware_update_previous_version": self.data.firmware_update_previous_version,
+            "firmware_update_started_at": self.data.firmware_update_started_at,
+            "firmware_update_download_completed_at": self.data.firmware_update_download_completed_at,
+            "firmware_update_install_started_at": self.data.firmware_update_install_started_at,
+            "firmware_update_completed_at": self.data.firmware_update_completed_at,
+            "firmware_update_failure_reason": self.data.firmware_update_failure_reason,
+            "firmware_update_last_ocpp_status": self.data.firmware_update_last_ocpp_status,
+            "firmware_update_last_transfer_event": self.data.firmware_update_last_transfer_event,
+            "firmware_update_expected_reconnect_by": self.data.firmware_update_expected_reconnect_by,
+            "firmware_server_enabled": self.data.firmware_server_enabled,
+            "firmware_server_host": self.data.firmware_server_host,
+            "firmware_server_last_transfer": self.data.firmware_server_last_transfer,
+            "selected_firmware_file": self.data.selected_firmware_file,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -187,10 +235,81 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             else self._is_car_plugged_in_status(self.data.status)
         )
         self.data.plug_and_go_enabled = bool(state.get("plug_and_go_enabled", False))
+        self.data.firmware_update_state = state.get("firmware_update_state")
+        firmware_update_target_file = state.get("firmware_update_target_file")
+        self.data.firmware_update_target_file = (
+            str(firmware_update_target_file).strip()
+            if firmware_update_target_file
+            else None
+        )
+        firmware_update_target_version = state.get("firmware_update_target_version")
+        self.data.firmware_update_target_version = (
+            str(firmware_update_target_version).strip()
+            if firmware_update_target_version
+            else None
+        )
+        firmware_update_previous_version = state.get("firmware_update_previous_version")
+        self.data.firmware_update_previous_version = (
+            str(firmware_update_previous_version).strip()
+            if firmware_update_previous_version
+            else None
+        )
+        self.data.firmware_update_started_at = self._coerce_datetime(
+            state.get("firmware_update_started_at")
+        )
+        self.data.firmware_update_download_completed_at = self._coerce_datetime(
+            state.get("firmware_update_download_completed_at")
+        )
+        self.data.firmware_update_install_started_at = self._coerce_datetime(
+            state.get("firmware_update_install_started_at")
+        )
+        self.data.firmware_update_completed_at = self._coerce_datetime(
+            state.get("firmware_update_completed_at")
+        )
+        firmware_update_failure_reason = state.get("firmware_update_failure_reason")
+        self.data.firmware_update_failure_reason = (
+            str(firmware_update_failure_reason).strip()
+            if firmware_update_failure_reason
+            else None
+        )
+        firmware_update_last_ocpp_status = state.get("firmware_update_last_ocpp_status")
+        self.data.firmware_update_last_ocpp_status = (
+            str(firmware_update_last_ocpp_status).strip()
+            if firmware_update_last_ocpp_status
+            else None
+        )
+        firmware_update_last_transfer_event = state.get(
+            "firmware_update_last_transfer_event"
+        )
+        self.data.firmware_update_last_transfer_event = (
+            str(firmware_update_last_transfer_event).strip()
+            if firmware_update_last_transfer_event
+            else None
+        )
+        self.data.firmware_update_expected_reconnect_by = self._coerce_datetime(
+            state.get("firmware_update_expected_reconnect_by")
+        )
+        self.data.firmware_server_enabled = bool(
+            state.get("firmware_server_enabled", state.get("firmware_ftp_enabled", False))
+        )
+        firmware_server_host = state.get(
+            "firmware_server_host", state.get("firmware_ftp_host")
+        )
+        self.data.firmware_server_host = (
+            str(firmware_server_host).strip() if firmware_server_host else None
+        )
+        self.data.firmware_server_last_transfer = state.get(
+            "firmware_server_last_transfer", state.get("firmware_ftp_last_transfer")
+        )
+        selected_firmware_file = state.get("selected_firmware_file")
+        self.data.selected_firmware_file = (
+            str(selected_firmware_file).strip() if selected_firmware_file else None
+        )
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
 
+        self._refresh_available_firmware_files()
         self._publish_state()
 
     async def async_restore_persisted_state(self) -> None:
@@ -202,10 +321,24 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_start(self) -> None:
         """Start coordinator tasks."""
 
+        self._refresh_available_firmware_files()
+
+        if self.data.firmware_server_enabled and self.firmware_server is not None:
+            try:
+                await self.firmware_server.async_start(self.firmware_server_port)
+            except HomeAssistantError as err:
+                self.data.firmware_server_running = False
+                self.data.firmware_server_error = str(err)
+            else:
+                self.data.firmware_server_running = True
+                self.data.firmware_server_error = None
+
         if self._unsub_timer is None:
             self._unsub_timer = async_track_time_interval(
                 self.hass, self._async_handle_timer, timedelta(seconds=30)
             )
+
+        self._publish_state()
 
     async def async_stop(self) -> None:
         """Stop coordinator tasks."""
@@ -213,6 +346,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if self._unsub_timer is not None:
             self._unsub_timer()
             self._unsub_timer = None
+
+        if self._firmware_server_auto_stop_task is not None:
+            self._firmware_server_auto_stop_task.cancel()
+            self._firmware_server_auto_stop_task = None
+
+        self.data.firmware_server_running = False
 
     @property
     def has_device(self) -> bool:
@@ -274,6 +413,38 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 CONF_LISTEN_PORT, self.entry.data.get(CONF_LISTEN_PORT)
             )
         )
+
+    @property
+    def firmware_server_port(self) -> int:
+        """Return the configured firmware transfer server port."""
+
+        return int(
+            self.entry.options.get(
+                CONF_FIRMWARE_SERVER_PORT,
+                self.entry.options.get(
+                    LEGACY_CONF_FIRMWARE_FTP_PORT,
+                    self.entry.data.get(
+                        CONF_FIRMWARE_SERVER_PORT,
+                        self.entry.data.get(
+                            LEGACY_CONF_FIRMWARE_FTP_PORT,
+                            DEFAULT_FIRMWARE_SERVER_PORT,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    @property
+    def firmware_directory(self) -> Path:
+        """Return the directory served by the local firmware transfer server."""
+
+        return Path(__file__).resolve().parent / "firmware"
+
+    @property
+    def firmware_update_in_progress(self) -> bool:
+        """Return whether a firmware update is currently active."""
+
+        return self._firmware_update_in_progress()
 
     @property
     def desired_meter_value_sample_interval(self) -> int:
@@ -347,6 +518,13 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         self.server = server
 
+    def set_firmware_server(self, server: Any) -> None:
+        """Attach the local firmware transfer server wrapper."""
+
+        self.firmware_server = server
+        if server is not None:
+            server.set_event_callback(self._async_handle_firmware_server_event)
+
     def can_accept_charge_point(self, candidate_id: str | None) -> bool:
         """Return whether the candidate charge point should be accepted."""
 
@@ -366,11 +544,15 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.rejected_charge_points.append(candidate_id)
             self._publish_state()
 
-    async def async_connection_opened(self, candidate_id: str | None) -> None:
+    async def async_connection_opened(
+        self, candidate_id: str | None, local_host: str | None = None
+    ) -> None:
         """Handle a websocket connection opening."""
 
         if candidate_id:
             self.data.path_charge_point_id = candidate_id
+        if local_host:
+            self.data.firmware_server_host = local_host
 
         if (
             candidate_id
@@ -384,6 +566,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.connected = True
         self.data.connection_state = "connected"
         self._touch_last_seen()
+        self._handle_firmware_reconnect()
         await self._async_upsert_device()
         self._publish_state()
 
@@ -393,6 +576,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.connected = False
         self.data.connection_state = "disconnected"
         self._update_heartbeat_age()
+        self._handle_firmware_disconnect()
         self._publish_state()
 
     async def async_record_boot(
@@ -419,6 +603,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.adopted = True
 
         self._touch_last_seen()
+        self._handle_firmware_version_observed()
         await self._async_upsert_device()
         self._publish_state()
 
@@ -572,7 +757,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Record FirmwareStatusNotification data."""
 
         self.data.firmware_status = payload.get("status")
+        self.data.firmware_update_last_ocpp_status = self.data.firmware_status
+        self.data.last_command_results["FirmwareStatusNotification"] = payload
         self._touch_last_seen()
+        self._apply_firmware_ocpp_status(self.data.firmware_status)
         self._publish_state()
 
     async def async_record_diagnostics_status(self, payload: dict[str, Any]) -> None:
@@ -659,6 +847,46 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Store the last result for a central-system initiated command."""
 
         self.data.last_command_results[action] = result
+        self._publish_state()
+
+    async def _async_handle_firmware_server_event(self, event: dict[str, Any]) -> None:
+        """Record a firmware transfer server event from the background thread."""
+
+        event_record = {
+            "captured_at": datetime.now(UTC).isoformat(),
+            **event,
+        }
+        self.data.firmware_server_events.append(event_record)
+        if len(self.data.firmware_server_events) > 50:
+            self.data.firmware_server_events = self.data.firmware_server_events[-50:]
+
+        event_type = event.get("event")
+        self.data.firmware_update_last_transfer_event = (
+            str(event_type).strip() if event_type else None
+        )
+        if event_type == "server_started":
+            self.data.firmware_server_running = True
+            self.data.firmware_server_error = None
+        elif event_type == "server_stopped":
+            self.data.firmware_server_running = False
+        elif event_type == "server_error":
+            self.data.firmware_server_running = False
+            self.data.firmware_server_error = str(event.get("error"))
+
+        if event_type in {
+            "download_started",
+            "file_sent",
+            "checksum_reported",
+            "checksum_ok",
+            "checksum_mismatch",
+            "upload_started",
+            "upload_complete",
+            "upload_checksum_ok",
+            "upload_checksum_mismatch",
+        }:
+            self.data.firmware_server_last_transfer = event_record
+
+        self._apply_firmware_transfer_event(event_record)
         self._publish_state()
 
     @callback
@@ -1008,6 +1236,36 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self._publish_state()
         return result
 
+    async def async_update_firmware(
+        self,
+        location: str,
+        retrieve_date: str,
+        retries: int | None = None,
+        retry_interval: int | None = None,
+    ) -> dict[str, Any]:
+        """Issue an UpdateFirmware command."""
+
+        if self._firmware_update_in_progress():
+            raise HomeAssistantError(
+                "A firmware update is already in progress; wait for it to complete or fail before starting another"
+            )
+
+        payload: dict[str, Any] = {
+            "location": location,
+            "retrieveDate": retrieve_date,
+        }
+        if retries is not None:
+            payload["retries"] = retries
+        if retry_interval is not None:
+            payload["retryInterval"] = retry_interval
+
+        self.data.last_update_firmware_request = dict(payload)
+        self._start_firmware_update_session(location)
+        result = await self._async_send_command("UpdateFirmware", payload)
+        await self.async_record_command_result("UpdateFirmware", result)
+        self._publish_state()
+        return result
+
     async def async_set_current_limit(self, amperage: float) -> dict[str, Any]:
         """Change the charger current limit."""
 
@@ -1064,6 +1322,276 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.plug_and_go_enabled = enabled
         self._publish_state()
         return {"enabled": enabled}
+
+    async def async_set_firmware_server_enabled(self, enabled: bool) -> dict[str, Any]:
+        """Start or stop the local firmware transfer server."""
+
+        if self.firmware_server is None:
+            raise HomeAssistantError("Firmware transfer server is not available")
+
+        self._refresh_available_firmware_files()
+
+        if enabled:
+            if not self.data.available_firmware_files:
+                raise HomeAssistantError(
+                    "No bundled firmware files were found in the integration firmware directory"
+                )
+            self._clear_firmware_update_session()
+            try:
+                await self.firmware_server.async_start(self.firmware_server_port)
+            except HomeAssistantError as err:
+                self.data.firmware_server_running = False
+                self.data.firmware_server_enabled = False
+                self.data.firmware_server_error = str(err)
+                self._publish_state()
+                raise
+
+            self.data.firmware_server_enabled = True
+            self.data.firmware_server_running = True
+            self.data.firmware_server_error = None
+        else:
+            await self.firmware_server.async_stop()
+            self.data.firmware_server_enabled = False
+            self.data.firmware_server_running = False
+            self.data.firmware_server_error = None
+
+        self._publish_state()
+        return {
+            "enabled": self.data.firmware_server_enabled,
+            "running": self.data.firmware_server_running,
+            "port": self.firmware_server_port,
+        }
+
+    async def async_set_selected_firmware_file(self, filename: str) -> None:
+        """Select the firmware file to expose/install."""
+
+        self._refresh_available_firmware_files()
+        if filename not in self.data.available_firmware_files:
+            raise HomeAssistantError(f"Unknown bundled firmware file: {filename}")
+        self.data.selected_firmware_file = filename
+        self._publish_state()
+
+    async def async_install_selected_firmware(self) -> dict[str, Any]:
+        """Install the currently selected bundled firmware file."""
+
+        self._refresh_available_firmware_files()
+        filename = self.data.selected_firmware_file
+        if not filename:
+            raise HomeAssistantError("No firmware file is currently selected")
+        if filename not in self.data.available_firmware_files:
+            raise HomeAssistantError(
+                f"The selected firmware file is no longer available: {filename}"
+            )
+        if not self.data.firmware_server_running:
+            raise HomeAssistantError("The firmware server is not running")
+        if not self.data.connected:
+            raise HomeAssistantError("No GivEnergy charger is currently connected")
+        if not self.data.firmware_server_host:
+            raise HomeAssistantError(
+                "Unable to determine the Home Assistant host address for the charger"
+            )
+
+        retrieve_at = (datetime.now(UTC) + timedelta(seconds=60)).replace(microsecond=0)
+        location = (
+            f"ftp://{self.data.firmware_server_host}:{self.firmware_server_port}/"
+            f"ChargerFirmware/{quote(filename)}"
+        )
+        return await self.async_update_firmware(
+            location=location,
+            retrieve_date=retrieve_at.isoformat().replace("+00:00", "Z"),
+            retries=1,
+            retry_interval=60,
+        )
+
+    def _start_firmware_update_session(self, location: str) -> None:
+        """Initialize a new local firmware update session."""
+
+        target_file = self.data.selected_firmware_file or Path(location).name or None
+        self.data.firmware_status = None
+        self.data.last_command_results.pop("FirmwareStatusNotification", None)
+        self.data.firmware_update_state = None
+        self.data.firmware_update_target_file = target_file
+        self.data.firmware_update_target_version = self._derive_firmware_version_from_filename(
+            target_file
+        )
+        self.data.firmware_update_previous_version = self.data.firmware_version
+        self.data.firmware_update_started_at = datetime.now(UTC)
+        self.data.firmware_update_download_completed_at = None
+        self.data.firmware_update_install_started_at = None
+        self.data.firmware_update_completed_at = None
+        self.data.firmware_update_failure_reason = None
+        self.data.firmware_update_last_ocpp_status = None
+        self.data.firmware_update_last_transfer_event = None
+        self.data.firmware_update_expected_reconnect_by = None
+
+    def _clear_firmware_update_session(self) -> None:
+        """Clear the local firmware update session and raw firmware sensor state."""
+
+        self.data.firmware_status = None
+        self.data.firmware_update_state = None
+        self.data.firmware_update_target_file = None
+        self.data.firmware_update_target_version = None
+        self.data.firmware_update_previous_version = None
+        self.data.firmware_update_started_at = None
+        self.data.firmware_update_download_completed_at = None
+        self.data.firmware_update_install_started_at = None
+        self.data.firmware_update_completed_at = None
+        self.data.firmware_update_failure_reason = None
+        self.data.firmware_update_last_ocpp_status = None
+        self.data.firmware_update_last_transfer_event = None
+        self.data.firmware_update_expected_reconnect_by = None
+        self.data.last_update_firmware_request = None
+        self.data.last_command_results.pop("FirmwareStatusNotification", None)
+        self.data.last_command_results.pop("UpdateFirmware", None)
+        self.data.firmware_server_last_transfer = None
+        self.data.firmware_server_events = []
+
+    def _firmware_update_in_progress(self) -> bool:
+        """Return whether a firmware update session is currently active."""
+
+        if self.data.firmware_update_state in {"Downloading", "Downloaded", "Installing"}:
+            return True
+
+        return (
+            self.data.firmware_update_started_at is not None
+            and self.data.firmware_update_completed_at is None
+            and self.data.firmware_update_failure_reason is None
+        )
+
+    def _apply_firmware_ocpp_status(self, status: str | None) -> None:
+        """Advance the local firmware update state from OCPP status events."""
+
+        if status in (None, ""):
+            return
+
+        now = datetime.now(UTC)
+        normalized = str(status).strip()
+
+        if normalized == "Downloading":
+            self.data.firmware_update_state = "Downloading"
+            return
+
+        if normalized == "Downloaded":
+            self.data.firmware_update_state = "Downloaded"
+            self.data.firmware_update_download_completed_at = (
+                self.data.firmware_update_download_completed_at or now
+            )
+            return
+
+        if normalized in {"Installing", "InstallScheduled"}:
+            self.data.firmware_update_state = "Installing"
+            self.data.firmware_update_install_started_at = (
+                self.data.firmware_update_install_started_at or now
+            )
+            self.data.firmware_update_expected_reconnect_by = (
+                now + FIRMWARE_INSTALLING_TIMEOUT
+            )
+            return
+
+        if normalized == "Installed":
+            self.data.firmware_update_state = "Installed"
+            self.data.firmware_update_completed_at = now
+            self.data.firmware_update_failure_reason = None
+            self.data.firmware_update_expected_reconnect_by = None
+            self._schedule_firmware_server_auto_stop()
+            return
+
+        if normalized in {
+            "DownloadFailed",
+            "InstallationFailed",
+            "InvalidSignature",
+            "SignatureVerifiedFailed",
+        }:
+            self.data.firmware_update_state = "Failed"
+            self.data.firmware_update_completed_at = now
+            self.data.firmware_update_failure_reason = normalized
+            self.data.firmware_update_expected_reconnect_by = None
+
+    def _apply_firmware_transfer_event(self, event: dict[str, Any]) -> None:
+        """Advance the local firmware update state from transfer-server events."""
+
+        event_type = event.get("event")
+        if not event_type:
+            return
+
+        now = datetime.now(UTC)
+
+        if event_type == "download_started" and self.data.firmware_update_state is None:
+            self.data.firmware_update_state = "Downloading"
+            return
+
+        if event_type in {"checksum_ok", "file_sent"}:
+            if self.data.firmware_update_state not in {"Installed", "Failed"}:
+                self.data.firmware_update_state = "Downloaded"
+                self.data.firmware_update_download_completed_at = (
+                    self.data.firmware_update_download_completed_at or now
+                )
+            return
+
+        if event_type in {"checksum_mismatch", "file_not_found"}:
+            self.data.firmware_update_state = "Failed"
+            self.data.firmware_update_completed_at = now
+            self.data.firmware_update_failure_reason = str(event_type)
+            self.data.firmware_update_expected_reconnect_by = None
+
+    def _handle_firmware_disconnect(self) -> None:
+        """Infer a transition into install phase when OCPP drops after download."""
+
+        now = datetime.now(UTC)
+        if self.data.firmware_update_state != "Downloaded":
+            return
+        completed_at = self.data.firmware_update_download_completed_at
+        if completed_at is None:
+            return
+        if now - completed_at > FIRMWARE_INSTALL_DISCONNECT_GRACE:
+            return
+
+        self.data.firmware_update_state = "Installing"
+        self.data.firmware_update_install_started_at = (
+            self.data.firmware_update_install_started_at or now
+        )
+        self.data.firmware_update_expected_reconnect_by = now + FIRMWARE_INSTALLING_TIMEOUT
+
+    def _handle_firmware_reconnect(self) -> None:
+        """Clear transient reconnect expectations and prepare for version check."""
+
+        if self.data.firmware_update_state == "Installing":
+            self.data.firmware_update_expected_reconnect_by = (
+                datetime.now(UTC) + FIRMWARE_INSTALLING_TIMEOUT
+            )
+
+    def _handle_firmware_version_observed(self) -> None:
+        """Mark installs successful when the charger comes back on a new version."""
+
+        current_version = self.data.firmware_version
+        if not current_version:
+            return
+
+        if self.data.firmware_update_state not in {"Downloaded", "Installing"}:
+            return
+
+        previous_version = self.data.firmware_update_previous_version
+        target_version = self.data.firmware_update_target_version
+        version_changed = previous_version is not None and current_version != previous_version
+        target_reached = target_version is not None and current_version == target_version
+
+        if version_changed or target_reached:
+            self.data.firmware_update_state = "Installed"
+            self.data.firmware_update_completed_at = datetime.now(UTC)
+            self.data.firmware_update_failure_reason = None
+            self.data.firmware_update_expected_reconnect_by = None
+            self._schedule_firmware_server_auto_stop()
+
+    @staticmethod
+    def _derive_firmware_version_from_filename(filename: str | None) -> str | None:
+        """Convert a firmware filename into the version string reported by the charger."""
+
+        if not filename:
+            return None
+        name = Path(filename).name
+        if name.lower().endswith(".bin"):
+            name = name[:-4]
+        return name or None
 
     async def async_start_charging(self) -> dict[str, Any]:
         """Request an immediate charging session."""
@@ -1163,6 +1691,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         previous_age = self.data.heartbeat_age_seconds
         previous_duration = self.data.session_duration_seconds
+        previous_firmware_state = self.data.firmware_update_state
         self._update_heartbeat_age()
         if self.data.transaction_active and self.data.transaction_started_at is not None:
             self.data.session_duration_seconds = max(
@@ -1173,10 +1702,14 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 ),
                 0,
             )
+        self._advance_firmware_state_from_timeouts()
         if previous_age != self.data.heartbeat_age_seconds:
             self._publish_state()
             return
         if previous_duration != self.data.session_duration_seconds:
+            self._publish_state()
+            return
+        if previous_firmware_state != self.data.firmware_update_state:
             self._publish_state()
 
     def as_diagnostics_dict(self) -> dict[str, Any]:
@@ -1188,6 +1721,11 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "last_heartbeat",
             "transaction_started_at",
             "transaction_ended_at",
+            "firmware_update_started_at",
+            "firmware_update_download_completed_at",
+            "firmware_update_install_started_at",
+            "firmware_update_completed_at",
+            "firmware_update_expected_reconnect_by",
         ):
             value = state.get(key)
             if value is not None:
@@ -1198,6 +1736,21 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "options": dict(self.entry.options),
             "state": state,
         }
+
+    def _refresh_available_firmware_files(self) -> None:
+        """Refresh the list of bundled firmware files available for serving."""
+
+        firmware_dir = self.firmware_directory
+        firmware_dir.mkdir(parents=True, exist_ok=True)
+        files = sorted(
+            path.name
+            for path in firmware_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".bin" and not path.name.startswith(".")
+        )
+        self.data.available_firmware_files = files
+
+        if self.data.selected_firmware_file not in files:
+            self.data.selected_firmware_file = files[0] if files else None
 
     def _configuration_value(self, key: str) -> Any:
         """Return a configuration value if available."""
@@ -1270,11 +1823,87 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Serialize persisted transaction/session state."""
 
         state = self.export_reload_state()
-        for key in ("transaction_started_at", "transaction_ended_at"):
+        for key in (
+            "transaction_started_at",
+            "transaction_ended_at",
+            "firmware_update_started_at",
+            "firmware_update_download_completed_at",
+            "firmware_update_install_started_at",
+            "firmware_update_completed_at",
+            "firmware_update_expected_reconnect_by",
+        ):
             value = state.get(key)
             if isinstance(value, datetime):
                 state[key] = value.isoformat()
         return state
+
+    def _advance_firmware_state_from_timeouts(self) -> None:
+        """Fail stale firmware-update phases when the charger never reports back."""
+
+        now = datetime.now(UTC)
+        state = self.data.firmware_update_state
+
+        if state == "Downloading" and self.data.firmware_update_started_at is not None:
+            if now - self.data.firmware_update_started_at > FIRMWARE_DOWNLOADING_TIMEOUT:
+                self.data.firmware_update_state = "Failed"
+                self.data.firmware_update_completed_at = now
+                self.data.firmware_update_failure_reason = "download_timeout"
+                self.data.firmware_update_expected_reconnect_by = None
+            return
+
+        if state == "Downloaded":
+            completed_at = self.data.firmware_update_download_completed_at
+            if completed_at is None:
+                return
+            quiet_for = (
+                now - self.data.last_seen
+                if self.data.last_seen is not None
+                else timedelta.max
+            )
+            if (
+                now - completed_at > FIRMWARE_INSTALL_QUIET_GRACE
+                and quiet_for > FIRMWARE_INSTALL_QUIET_GRACE
+            ):
+                self.data.firmware_update_state = "Installing"
+                self.data.firmware_update_install_started_at = (
+                    self.data.firmware_update_install_started_at or now
+                )
+                self.data.firmware_update_expected_reconnect_by = (
+                    now + FIRMWARE_INSTALLING_TIMEOUT
+                )
+            return
+
+        if state == "Installing":
+            deadline = self.data.firmware_update_expected_reconnect_by
+            if deadline is not None and now > deadline:
+                self.data.firmware_update_state = "Failed"
+                self.data.firmware_update_completed_at = now
+                self.data.firmware_update_failure_reason = "install_timeout"
+                self.data.firmware_update_expected_reconnect_by = None
+
+    def _schedule_firmware_server_auto_stop(self) -> None:
+        """Stop the firmware server automatically after a confirmed successful install."""
+
+        if not self.data.firmware_server_running or self.firmware_server is None:
+            return
+        if self._firmware_server_auto_stop_task is not None:
+            return
+        self._firmware_server_auto_stop_task = self.hass.async_create_task(
+            self._async_auto_stop_firmware_server()
+        )
+
+    async def _async_auto_stop_firmware_server(self) -> None:
+        """Disable the firmware server after a successful update confirmation."""
+
+        try:
+            await self.async_set_firmware_server_enabled(False)
+        except HomeAssistantError as err:
+            _LOGGER.warning(
+                "Unable to auto-stop firmware server after successful firmware update: %s",
+                err,
+            )
+        finally:
+            self._firmware_server_auto_stop_task = None
 
     @staticmethod
     def _parse_ocpp_timestamp(value: Any) -> datetime | None:

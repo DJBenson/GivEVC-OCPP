@@ -27,8 +27,10 @@ from .const import (
     SERVICE_SET_CHARGING_PROFILE,
     SERVICE_TRIGGER_MESSAGE,
     SERVICE_UNLOCK_CONNECTOR,
+    SERVICE_UPDATE_FIRMWARE,
 )
 from .coordinator import GivEnergyEvcCoordinator
+from .firmware_transfer_server import GivEnergyFirmwareTransferServer
 from .server import GivEnergyOcppServer
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +44,7 @@ class GivEnergyRuntimeData:
 
     coordinator: GivEnergyEvcCoordinator
     server: GivEnergyOcppServer
+    firmware_server: GivEnergyFirmwareTransferServer
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -60,7 +63,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     reload_state = hass.data[DOMAIN].get(RELOAD_STATE_KEY, {}).pop(entry.entry_id, None)
     coordinator.restore_reload_state(reload_state)
     server = GivEnergyOcppServer(hass, coordinator)
+    firmware_server = GivEnergyFirmwareTransferServer(
+        hass, coordinator.firmware_directory
+    )
     coordinator.set_server(server)
+    coordinator.set_firmware_server(firmware_server)
 
     try:
         await server.async_start()
@@ -71,7 +78,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await coordinator.async_start()
 
-    runtime_data = GivEnergyRuntimeData(coordinator=coordinator, server=server)
+    runtime_data = GivEnergyRuntimeData(
+        coordinator=coordinator,
+        server=server,
+        firmware_server=firmware_server,
+    )
     entry.runtime_data = runtime_data
     hass.data[DOMAIN][entry.entry_id] = runtime_data
 
@@ -92,6 +103,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await runtime.server.async_stop()
+    await runtime.firmware_server.async_stop()
     await runtime.coordinator.async_stop()
 
     hass.data[DOMAIN].pop(entry.entry_id, None)
@@ -176,6 +188,15 @@ async def _async_register_services(hass: HomeAssistant) -> None:
     async def async_handle_change_availability(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
         await runtime.coordinator.async_change_availability(call.data["operative"])
+
+    async def async_handle_update_firmware(call: ServiceCall) -> None:
+        runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
+        await runtime.coordinator.async_update_firmware(
+            location=call.data["location"],
+            retrieve_date=call.data["retrieve_date"],
+            retries=call.data.get("retries"),
+            retry_interval=call.data.get("retry_interval"),
+        )
 
     hass.services.async_register(
         DOMAIN,
@@ -296,6 +317,20 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_FIRMWARE,
+        async_handle_update_firmware,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Required("location"): cv.string,
+                vol.Required("retrieve_date"): cv.string,
+                vol.Optional("retries"): vol.Coerce(int),
+                vol.Optional("retry_interval"): vol.Coerce(int),
+            }
+        ),
+    )
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -314,6 +349,7 @@ def _async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SET_CHARGING_PROFILE,
         SERVICE_CLEAR_CHARGING_PROFILE,
         SERVICE_CHANGE_AVAILABILITY,
+        SERVICE_UPDATE_FIRMWARE,
     ):
         hass.services.async_remove(DOMAIN, service)
     hass.data[DOMAIN]["services_registered"] = False

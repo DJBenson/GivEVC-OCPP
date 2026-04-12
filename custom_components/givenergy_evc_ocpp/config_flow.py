@@ -18,12 +18,15 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_EXPECTED_CHARGE_POINT_ID,
+    CONF_FIRMWARE_SERVER_PORT,
+    LEGACY_CONF_FIRMWARE_FTP_PORT,
     CONF_LISTEN_PORT,
     CONF_METER_VALUE_SAMPLE_INTERVAL,
     DEFAULT_ADOPT_FIRST_CHARGER,
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_SERVER_PORT,
     DEFAULT_LISTEN_HOST,
     DEFAULT_LISTEN_PORT,
     DEFAULT_METER_VALUE_SAMPLE_INTERVAL,
@@ -50,6 +53,25 @@ async def _async_can_listen_on_port(port: int) -> bool:
     return True
 
 
+def _configured_firmware_server_port(defaults: Mapping[str, Any]) -> int:
+    """Return the configured firmware server port, supporting the legacy key."""
+
+    return int(
+        defaults.get(
+            CONF_FIRMWARE_SERVER_PORT,
+            defaults.get(LEGACY_CONF_FIRMWARE_FTP_PORT, DEFAULT_FIRMWARE_SERVER_PORT),
+        )
+    )
+
+
+def _validate_server_ports(listen_port: int, firmware_server_port: int) -> str | None:
+    """Return a config-flow error key when the port setup is invalid."""
+
+    if listen_port == firmware_server_port:
+        return "ports_must_differ"
+    return None
+
+
 def _build_user_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     """Build the initial config-flow schema."""
 
@@ -58,6 +80,10 @@ def _build_user_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_LISTEN_PORT,
                 default=defaults.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(
+                CONF_FIRMWARE_SERVER_PORT,
+                default=_configured_firmware_server_port(defaults),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
             vol.Optional(
                 CONF_EXPECTED_CHARGE_POINT_ID,
@@ -92,6 +118,10 @@ def _build_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_LISTEN_PORT,
                 default=defaults.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(
+                CONF_FIRMWARE_SERVER_PORT,
+                default=_configured_firmware_server_port(defaults),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
             vol.Optional(
                 CONF_EXPECTED_CHARGE_POINT_ID,
@@ -142,11 +172,23 @@ class GivEnergyEvcOcppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(DOMAIN)
             self._abort_if_unique_id_configured()
 
-            if not await _async_can_listen_on_port(user_input[CONF_LISTEN_PORT]):
+            validation_error = _validate_server_ports(
+                user_input[CONF_LISTEN_PORT],
+                user_input[CONF_FIRMWARE_SERVER_PORT],
+            )
+            if validation_error:
+                errors["base"] = validation_error
+            elif not await _async_can_listen_on_port(user_input[CONF_LISTEN_PORT]):
                 errors["base"] = "port_in_use"
-            else:
+            elif not await _async_can_listen_on_port(
+                user_input[CONF_FIRMWARE_SERVER_PORT]
+            ):
+                errors["base"] = "firmware_server_port_in_use"
+
+            if not errors:
                 data = {
                     CONF_LISTEN_PORT: user_input[CONF_LISTEN_PORT],
+                    CONF_FIRMWARE_SERVER_PORT: user_input[CONF_FIRMWARE_SERVER_PORT],
                     CONF_EXPECTED_CHARGE_POINT_ID: user_input[
                         CONF_EXPECTED_CHARGE_POINT_ID
                     ].strip(),
@@ -196,17 +238,31 @@ class GivEnergyEvcOcppOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             current_port = defaults.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT)
+            current_firmware_server_port = _configured_firmware_server_port(defaults)
             requested_port = user_input[CONF_LISTEN_PORT]
+            requested_firmware_server_port = user_input[CONF_FIRMWARE_SERVER_PORT]
 
-            if requested_port != current_port and not await _async_can_listen_on_port(
+            validation_error = _validate_server_ports(
+                requested_port, requested_firmware_server_port
+            )
+            if validation_error:
+                errors["base"] = validation_error
+            elif requested_port != current_port and not await _async_can_listen_on_port(
                 requested_port
             ):
                 errors["base"] = "port_in_use"
-            else:
+            elif (
+                requested_firmware_server_port != current_firmware_server_port
+                and not await _async_can_listen_on_port(requested_firmware_server_port)
+            ):
+                errors["base"] = "firmware_server_port_in_use"
+
+            if not errors:
                 return self.async_create_entry(
                     title="",
                     data={
                         CONF_LISTEN_PORT: requested_port,
+                        CONF_FIRMWARE_SERVER_PORT: requested_firmware_server_port,
                         CONF_EXPECTED_CHARGE_POINT_ID: user_input[
                             CONF_EXPECTED_CHARGE_POINT_ID
                         ].strip(),

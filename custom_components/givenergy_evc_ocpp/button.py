@@ -73,7 +73,12 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
-    async_add_entities(GivEnergyEvcButton(coordinator, description) for description in BUTTONS)
+    async_add_entities(
+        [
+            *(GivEnergyEvcButton(coordinator, description) for description in BUTTONS),
+            GivEnergyInstallSelectedFirmwareButton(coordinator),
+        ]
+    )
 
 
 class GivEnergyEvcButton(GivEnergyEvcEntity, ButtonEntity):
@@ -101,3 +106,44 @@ class GivEnergyEvcButton(GivEnergyEvcEntity, ButtonEntity):
         """Handle button press."""
 
         await self.entity_description.press_fn(self.coordinator)
+
+
+class GivEnergyInstallSelectedFirmwareButton(GivEnergyEvcEntity, ButtonEntity):
+    """Button that sends UpdateFirmware for the selected local firmware file."""
+
+    _attr_translation_key = "install_selected_firmware"
+    _attr_icon = "mdi:download-circle-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
+        """Initialise the button."""
+
+        super().__init__(coordinator, "install_selected_firmware")
+
+    @property
+    def available(self) -> bool:
+        """Only expose installation when the charger and firmware server are ready."""
+
+        return (
+            super().available
+            and self.coordinator.data.connected
+            and self.coordinator.data.firmware_server_running
+            and self.coordinator.data.selected_firmware_file is not None
+            and self.coordinator.data.firmware_server_host is not None
+            and not self.coordinator.firmware_update_in_progress
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | int | None]:
+        """Return the generated firmware URL ingredients."""
+
+        return {
+            "selected_file": self.coordinator.data.selected_firmware_file,
+            "server_host": self.coordinator.data.firmware_server_host,
+            "server_port": self.coordinator.firmware_server_port,
+        }
+
+    async def async_press(self) -> None:
+        """Trigger a firmware update from the selected bundled file."""
+
+        await self.coordinator.async_install_selected_firmware()
