@@ -13,12 +13,17 @@ DEFAULT_ENHANCED_LOGGING = False
 DEFAULT_COMMAND_TIMEOUT = 20
 DEFAULT_METER_VALUE_SAMPLE_INTERVAL = 15
 DEFAULT_FIRMWARE_SERVER_PORT = 9688
+DEFAULT_FIRMWARE_MANIFEST_URL = (
+    "https://raw.githubusercontent.com/DJBenson/giv-firmware/refs/heads/main/"
+    "Firmware/EVC/manifest.json"
+)
 MAX_STORED_OCPP_FRAMES = 500
 DEFAULT_EVSE_MIN_CURRENT = 6.0
 DEFAULT_EVSE_MAX_CURRENT = 32.0
 
 CONF_LISTEN_PORT = "listen_port"
 CONF_FIRMWARE_SERVER_PORT = "firmware_server_port"
+CONF_FIRMWARE_MANIFEST_URL = "firmware_manifest_url"
 LEGACY_CONF_FIRMWARE_FTP_PORT = "firmware_ftp_port"
 CONF_EXPECTED_CHARGE_POINT_ID = "expected_charge_point_id"
 CONF_ADOPT_FIRST_CHARGER = "adopt_first_charger"

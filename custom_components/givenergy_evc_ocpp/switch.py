@@ -163,9 +163,24 @@ class GivEnergyFirmwareServerSwitch(GivEnergyEvcEntity, SwitchEntity):
         return {
             "server_host": self.coordinator.data.firmware_server_host,
             "server_port": self.coordinator.firmware_server_port,
+            "manifest_url": self.coordinator.firmware_manifest_url,
+            "manifest_error": self.coordinator.data.firmware_manifest_error,
+            "manifest_refreshed_at": (
+                self.coordinator.data.firmware_manifest_refreshed_at.isoformat()
+                if self.coordinator.data.firmware_manifest_refreshed_at
+                else None
+            ),
             "firmware_directory": str(self.coordinator.firmware_directory),
             "selected_file": self.coordinator.data.selected_firmware_file,
+            "selected_file_cached": (
+                self.coordinator.is_firmware_cached(
+                    self.coordinator.data.selected_firmware_file
+                )
+                if self.coordinator.data.selected_firmware_file
+                else None
+            ),
             "available_files": self.coordinator.data.available_firmware_files,
+            "cached_files": self.coordinator.cached_firmware_files(),
             "last_error": self.coordinator.data.firmware_server_error,
             "last_transfer": self.coordinator.data.firmware_server_last_transfer,
             "recent_events": self.coordinator.data.firmware_server_events[-10:],

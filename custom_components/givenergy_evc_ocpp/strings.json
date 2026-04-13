@@ -7,6 +7,7 @@
         "data": {
           "listen_port": "Listen port",
           "firmware_server_port": "Firmware server port",
+          "firmware_manifest_url": "Firmware manifest URL",
           "expected_charge_point_id": "Expected charge point ID",
           "adopt_first_charger": "Automatically adopt the first charger that connects",
           "meter_value_sample_interval_seconds": "Meter values interval (seconds)",
@@ -31,6 +32,7 @@
         "data": {
           "listen_port": "Listen port",
           "firmware_server_port": "Firmware server port",
+          "firmware_manifest_url": "Firmware manifest URL",
           "expected_charge_point_id": "Expected charge point ID",
           "adopt_first_charger": "Automatically adopt the first charger that connects",
           "debug_logging": "Enable verbose OCPP logging",

@@ -266,7 +266,18 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
             "server_running": coordinator.data.firmware_server_running,
             "server_host": coordinator.data.firmware_server_host,
             "server_port": coordinator.firmware_server_port,
+            "manifest_url": coordinator.firmware_manifest_url,
+            "manifest_error": coordinator.data.firmware_manifest_error,
+            "manifest_refreshed_at": _format_local_timestamp(
+                coordinator.data.firmware_manifest_refreshed_at
+            ),
             "selected_file": coordinator.data.selected_firmware_file,
+            "selected_file_cached": (
+                coordinator.is_firmware_cached(coordinator.data.selected_firmware_file)
+                if coordinator.data.selected_firmware_file
+                else None
+            ),
+            "cached_files": coordinator.cached_firmware_files(),
             "last_transfer": coordinator.data.firmware_server_last_transfer,
             "server_events": coordinator.data.firmware_server_events,
         },

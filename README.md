@@ -171,7 +171,7 @@ Depending on what the charger reports, Home Assistant can expose:
 
 ## Firmware management
 
-The integration ships with an integrated firmware management tool which is disabled by default. When enabled, you can choose from one of three firmware versions currently shipped with the integration (1.12-1.14) and apply the update directly to the EVC from within the integration!
+The integration ships with an integrated firmware management tool which is disabled by default. When enabled, you can choose from one of three firmware versions (1.12-1.14) and apply the update directly to the EVC from within the integration! Firmware files are pulled from a separate repository of firmware files ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)) using a bundled manifest file. Files are cached on first download and validated before being sent to the charger - if there are any discrepancies, the file is re-downloaded. The drop down will show either ```[cached]``` or ```[download]``` depending upon whether the file exists locally or not.
 
 1. Ensure you are running at least version 0.2.0 of the integration
 2. Enable the "Firmware server" toggle

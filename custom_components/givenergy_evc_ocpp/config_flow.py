@@ -18,6 +18,7 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_EXPECTED_CHARGE_POINT_ID,
+    CONF_FIRMWARE_MANIFEST_URL,
     CONF_FIRMWARE_SERVER_PORT,
     LEGACY_CONF_FIRMWARE_FTP_PORT,
     CONF_LISTEN_PORT,
@@ -26,6 +27,7 @@ from .const import (
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_MANIFEST_URL,
     DEFAULT_FIRMWARE_SERVER_PORT,
     DEFAULT_LISTEN_HOST,
     DEFAULT_LISTEN_PORT,
@@ -85,6 +87,12 @@ def _build_user_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 CONF_FIRMWARE_SERVER_PORT,
                 default=_configured_firmware_server_port(defaults),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(
+                CONF_FIRMWARE_MANIFEST_URL,
+                default=defaults.get(
+                    CONF_FIRMWARE_MANIFEST_URL, DEFAULT_FIRMWARE_MANIFEST_URL
+                ),
+            ): str,
             vol.Optional(
                 CONF_EXPECTED_CHARGE_POINT_ID,
                 default=defaults.get(CONF_EXPECTED_CHARGE_POINT_ID, ""),
@@ -123,6 +131,12 @@ def _build_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 CONF_FIRMWARE_SERVER_PORT,
                 default=_configured_firmware_server_port(defaults),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(
+                CONF_FIRMWARE_MANIFEST_URL,
+                default=defaults.get(
+                    CONF_FIRMWARE_MANIFEST_URL, DEFAULT_FIRMWARE_MANIFEST_URL
+                ),
+            ): str,
             vol.Optional(
                 CONF_EXPECTED_CHARGE_POINT_ID,
                 default=defaults.get(CONF_EXPECTED_CHARGE_POINT_ID, ""),
@@ -189,6 +203,9 @@ class GivEnergyEvcOcppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 data = {
                     CONF_LISTEN_PORT: user_input[CONF_LISTEN_PORT],
                     CONF_FIRMWARE_SERVER_PORT: user_input[CONF_FIRMWARE_SERVER_PORT],
+                    CONF_FIRMWARE_MANIFEST_URL: user_input[
+                        CONF_FIRMWARE_MANIFEST_URL
+                    ].strip(),
                     CONF_EXPECTED_CHARGE_POINT_ID: user_input[
                         CONF_EXPECTED_CHARGE_POINT_ID
                     ].strip(),
@@ -263,6 +280,9 @@ class GivEnergyEvcOcppOptionsFlow(config_entries.OptionsFlow):
                     data={
                         CONF_LISTEN_PORT: requested_port,
                         CONF_FIRMWARE_SERVER_PORT: requested_firmware_server_port,
+                        CONF_FIRMWARE_MANIFEST_URL: user_input[
+                            CONF_FIRMWARE_MANIFEST_URL
+                        ].strip(),
                         CONF_EXPECTED_CHARGE_POINT_ID: user_input[
                             CONF_EXPECTED_CHARGE_POINT_ID
                         ].strip(),
