@@ -67,7 +67,7 @@ class GivEnergyChargeModeSelect(GivEnergyEvcEntity, SelectEntity):
 
 
 class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
-    """Select entity for bundled firmware files served by the local transfer server."""
+    """Select entity for manifest-backed firmware files served by the local transfer server."""
 
     _attr_translation_key = "firmware_file"
     _attr_icon = "mdi:file-download-outline"
@@ -86,18 +86,39 @@ class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
 
     @property
     def current_option(self) -> str | None:
-        """Return the selected firmware file."""
+        """Return the selected firmware file label."""
 
-        return self.coordinator.data.selected_firmware_file
+        filename = self.coordinator.data.selected_firmware_file
+        return self._option_label(filename) if filename else None
 
     @property
     def options(self) -> list[str]:
-        """Return available bundled firmware files."""
+        """Return available manifest-backed firmware files with cache-state labels."""
 
         self.coordinator._refresh_available_firmware_files()
-        return list(self.coordinator.data.available_firmware_files)
+        return [
+            self._option_label(filename)
+            for filename in self.coordinator.data.available_firmware_files
+        ]
 
     async def async_select_option(self, option: str) -> None:
-        """Select a bundled firmware file."""
+        """Select a manifest-backed firmware file."""
 
-        await self.coordinator.async_set_selected_firmware_file(option)
+        await self.coordinator.async_set_selected_firmware_file(
+            self._filename_from_option(option)
+        )
+
+    def _option_label(self, filename: str) -> str:
+        """Return the UI label for a firmware file."""
+
+        prefix = "[cached]" if self.coordinator.is_firmware_cached(filename) else "[download]"
+        return f"{prefix} {filename}"
+
+    def _filename_from_option(self, option: str) -> str:
+        """Map a UI label back to the underlying firmware filename."""
+
+        option = option.strip()
+        for filename in self.coordinator.data.available_firmware_files:
+            if option == filename or option == self._option_label(filename):
+                return filename
+        return option

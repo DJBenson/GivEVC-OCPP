@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTime
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
@@ -27,6 +30,7 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_EXPECTED_CHARGE_POINT_ID,
+    CONF_FIRMWARE_MANIFEST_URL,
     CONF_FIRMWARE_SERVER_PORT,
     LEGACY_CONF_FIRMWARE_FTP_PORT,
     CONF_LISTEN_PORT,
@@ -35,6 +39,7 @@ from .const import (
     DEFAULT_EVSE_MAX_CURRENT,
     DEFAULT_EVSE_MIN_CURRENT,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_MANIFEST_URL,
     DEFAULT_FIRMWARE_SERVER_PORT,
     GIVENERGY_CHARGE_MODES,
     DEFAULT_METER_VALUE_SAMPLE_INTERVAL,
@@ -86,6 +91,9 @@ class GivEnergyEvcState:
     firmware_server_running: bool = False
     firmware_server_host: str | None = None
     firmware_server_error: str | None = None
+    firmware_manifest_error: str | None = None
+    firmware_manifest_refreshed_at: datetime | None = None
+    firmware_manifest_entries: dict[str, dict[str, Any]] = field(default_factory=dict)
     firmware_server_last_transfer: dict[str, Any] | None = None
     selected_firmware_file: str | None = None
     available_firmware_files: list[str] = field(default_factory=list)
@@ -321,10 +329,18 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_start(self) -> None:
         """Start coordinator tasks."""
 
-        self._refresh_available_firmware_files()
+        try:
+            await self.async_refresh_firmware_manifest()
+        except HomeAssistantError as err:
+            self.data.firmware_manifest_error = str(err)
+            self.data.firmware_server_enabled = False
 
         if self.data.firmware_server_enabled and self.firmware_server is not None:
             try:
+                if not self.data.available_firmware_files:
+                    raise HomeAssistantError(
+                        "No firmware entries were loaded from the configured manifest"
+                    )
                 await self.firmware_server.async_start(self.firmware_server_port)
             except HomeAssistantError as err:
                 self.data.firmware_server_running = False
@@ -433,6 +449,18 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 ),
             )
         )
+
+    @property
+    def firmware_manifest_url(self) -> str:
+        """Return the configured firmware manifest URL."""
+
+        value = self.entry.options.get(
+            CONF_FIRMWARE_MANIFEST_URL,
+            self.entry.data.get(
+                CONF_FIRMWARE_MANIFEST_URL, DEFAULT_FIRMWARE_MANIFEST_URL
+            ),
+        )
+        return str(value).strip()
 
     @property
     def firmware_directory(self) -> Path:
@@ -1329,12 +1357,11 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if self.firmware_server is None:
             raise HomeAssistantError("Firmware transfer server is not available")
 
-        self._refresh_available_firmware_files()
-
         if enabled:
+            await self.async_refresh_firmware_manifest()
             if not self.data.available_firmware_files:
                 raise HomeAssistantError(
-                    "No bundled firmware files were found in the integration firmware directory"
+                    "No firmware files were loaded from the configured firmware manifest"
                 )
             self._clear_firmware_update_session()
             try:
@@ -1365,16 +1392,18 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_set_selected_firmware_file(self, filename: str) -> None:
         """Select the firmware file to expose/install."""
 
-        self._refresh_available_firmware_files()
+        if not self.data.firmware_manifest_entries:
+            await self.async_refresh_firmware_manifest()
         if filename not in self.data.available_firmware_files:
-            raise HomeAssistantError(f"Unknown bundled firmware file: {filename}")
+            raise HomeAssistantError(f"Unknown firmware file from manifest: {filename}")
         self.data.selected_firmware_file = filename
         self._publish_state()
 
     async def async_install_selected_firmware(self) -> dict[str, Any]:
-        """Install the currently selected bundled firmware file."""
+        """Install the currently selected firmware file."""
 
-        self._refresh_available_firmware_files()
+        if not self.data.firmware_manifest_entries:
+            await self.async_refresh_firmware_manifest()
         filename = self.data.selected_firmware_file
         if not filename:
             raise HomeAssistantError("No firmware file is currently selected")
@@ -1390,6 +1419,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             raise HomeAssistantError(
                 "Unable to determine the Home Assistant host address for the charger"
             )
+
+        await self._async_ensure_firmware_cached(filename)
 
         retrieve_at = (datetime.now(UTC) + timedelta(seconds=60)).replace(microsecond=0)
         location = (
@@ -1445,6 +1476,171 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.last_command_results.pop("UpdateFirmware", None)
         self.data.firmware_server_last_transfer = None
         self.data.firmware_server_events = []
+
+    async def async_refresh_firmware_manifest(self) -> None:
+        """Fetch and parse the configured firmware manifest."""
+
+        manifest_url = self.firmware_manifest_url
+        if not manifest_url:
+            self.data.firmware_manifest_error = "No firmware manifest URL is configured"
+            self.data.firmware_manifest_entries = {}
+            self._refresh_available_firmware_files()
+            self._publish_state()
+            return
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(manifest_url, allow_redirects=True) as response:
+                if response.status != 200:
+                    raise HomeAssistantError(
+                        f"Manifest request failed with HTTP {response.status}"
+                    )
+                manifest = json.loads(await response.text())
+        except Exception as err:
+            self.data.firmware_manifest_error = str(err)
+            self.data.firmware_manifest_entries = {}
+            self._refresh_available_firmware_files()
+            self._publish_state()
+            raise HomeAssistantError(
+                f"Unable to load firmware manifest from {manifest_url}: {err}"
+            ) from err
+
+        self.data.firmware_manifest_entries = self._parse_firmware_manifest(manifest)
+        self.data.firmware_manifest_error = None
+        self.data.firmware_manifest_refreshed_at = datetime.now(UTC)
+        self._refresh_available_firmware_files()
+        self._publish_state()
+
+    def _parse_firmware_manifest(self, manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """Parse the firmware manifest into filename-indexed entries."""
+
+        models = manifest.get("models")
+        if not isinstance(models, dict):
+            raise HomeAssistantError("Firmware manifest does not contain a valid models map")
+
+        preferred_model = self._derive_manifest_model_key()
+        selected_models: list[tuple[str, dict[str, Any]]] = []
+
+        if preferred_model and preferred_model in models and isinstance(models[preferred_model], dict):
+            selected_models = [(preferred_model, models[preferred_model])]
+        else:
+            selected_models = [
+                (model_key, model_value)
+                for model_key, model_value in models.items()
+                if isinstance(model_value, dict)
+            ]
+
+        entries: dict[str, dict[str, Any]] = {}
+        for model_key, model_data in selected_models:
+            versions = model_data.get("versions")
+            if not isinstance(versions, dict):
+                continue
+            for version, entry in versions.items():
+                if not isinstance(entry, dict):
+                    continue
+                filename = entry.get("filename")
+                url = entry.get("url")
+                checksum_md5 = entry.get("checksum_md5")
+                size = entry.get("size")
+                if not filename or not url or not checksum_md5:
+                    continue
+                normalized_filename = str(filename).strip()
+                entries[normalized_filename] = {
+                    "model": model_key,
+                    "version": str(version).strip(),
+                    "filename": normalized_filename,
+                    "url": str(url).strip(),
+                    "checksum_md5": str(checksum_md5).strip().lower(),
+                    "size": self._coerce_int(size),
+                }
+
+        if not entries:
+            raise HomeAssistantError("Firmware manifest did not yield any usable firmware entries")
+
+        return entries
+
+    def _derive_manifest_model_key(self) -> str | None:
+        """Infer the firmware manifest model key from the charger's current version."""
+
+        version = self.data.firmware_version
+        if not version:
+            return None
+        parts = str(version).strip().split("_")
+        if len(parts) < 3:
+            return None
+        return "_".join(parts[:-1])
+
+    async def _async_ensure_firmware_cached(self, filename: str) -> Path:
+        """Ensure the selected firmware file exists locally and matches the manifest checksum."""
+
+        entry = self.data.firmware_manifest_entries.get(filename)
+        if not entry:
+            raise HomeAssistantError(f"No manifest entry was found for firmware file: {filename}")
+
+        firmware_dir = self.firmware_directory
+        firmware_dir.mkdir(parents=True, exist_ok=True)
+        target_path = firmware_dir / filename
+
+        if await self._async_cached_firmware_matches_manifest(target_path, entry):
+            return target_path
+
+        await self._async_download_firmware(target_path, entry)
+
+        if not await self._async_cached_firmware_matches_manifest(target_path, entry):
+            raise HomeAssistantError(
+                f"Downloaded firmware failed checksum validation: {filename}"
+            )
+
+        return target_path
+
+    async def _async_cached_firmware_matches_manifest(
+        self, path: Path, entry: dict[str, Any]
+    ) -> bool:
+        """Return whether a cached firmware file matches manifest size and checksum."""
+
+        if not path.is_file():
+            return False
+
+        expected_size = entry.get("size")
+        actual_size = path.stat().st_size
+        if expected_size is not None and actual_size != expected_size:
+            return False
+
+        expected_md5 = entry.get("checksum_md5")
+        actual_md5 = await self.hass.async_add_executor_job(self._compute_md5, path)
+        return actual_md5 == expected_md5
+
+    async def _async_download_firmware(self, target_path: Path, entry: dict[str, Any]) -> None:
+        """Download a firmware file into the local cache."""
+
+        download_url = entry["url"]
+        temp_path = target_path.with_suffix(f"{target_path.suffix}.download")
+        if temp_path.exists():
+            temp_path.unlink()
+
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.get(download_url, allow_redirects=True) as response:
+                if response.status != 200:
+                    raise HomeAssistantError(
+                        f"Firmware download failed with HTTP {response.status}"
+                    )
+                data = await response.read()
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unable to download firmware from {download_url}: {err}"
+            ) from err
+
+        await self.hass.async_add_executor_job(temp_path.write_bytes, data)
+        try:
+            if not await self._async_cached_firmware_matches_manifest(temp_path, entry):
+                raise HomeAssistantError(
+                    f"Downloaded file checksum or size did not match manifest for {entry['filename']}"
+                )
+            await self.hass.async_add_executor_job(temp_path.replace, target_path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _firmware_update_in_progress(self) -> bool:
         """Return whether a firmware update session is currently active."""
@@ -1738,19 +1934,42 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         }
 
     def _refresh_available_firmware_files(self) -> None:
-        """Refresh the list of bundled firmware files available for serving."""
+        """Refresh the list of firmware files available from the manifest catalog."""
 
-        firmware_dir = self.firmware_directory
-        firmware_dir.mkdir(parents=True, exist_ok=True)
-        files = sorted(
-            path.name
-            for path in firmware_dir.iterdir()
-            if path.is_file() and path.suffix.lower() == ".bin" and not path.name.startswith(".")
-        )
+        files = sorted(self.data.firmware_manifest_entries)
         self.data.available_firmware_files = files
 
         if self.data.selected_firmware_file not in files:
             self.data.selected_firmware_file = files[0] if files else None
+
+    def firmware_cache_path(self, filename: str) -> Path:
+        """Return the local cache path for a firmware filename."""
+
+        return self.firmware_directory / filename
+
+    def is_firmware_cached(self, filename: str) -> bool:
+        """Return whether a firmware file is already present in the local cache."""
+
+        return self.firmware_cache_path(filename).is_file()
+
+    def cached_firmware_files(self) -> list[str]:
+        """Return cached firmware files from the current manifest-backed catalog."""
+
+        return [
+            filename
+            for filename in self.data.available_firmware_files
+            if self.is_firmware_cached(filename)
+        ]
+
+    @staticmethod
+    def _compute_md5(path: Path) -> str:
+        """Compute the MD5 checksum of a firmware file."""
+
+        digest = hashlib.md5()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def _configuration_value(self, key: str) -> Any:
         """Return a configuration value if available."""
