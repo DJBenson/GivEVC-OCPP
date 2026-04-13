@@ -130,9 +130,12 @@ class GivEnergyMaxImportCapacityNumber(GivEnergyEvcEntity, NumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current max import capacity setting."""
+        """Return the current max import capacity setting, clamped to slider bounds."""
 
-        return self.coordinator.data.max_import_capacity_a
+        value = self.coordinator.data.max_import_capacity_a
+        if value is None:
+            return None
+        return float(max(self._attr_native_min_value, min(self._attr_native_max_value, value)))
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the max import capacity."""

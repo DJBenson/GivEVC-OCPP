@@ -2011,10 +2011,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Extract the max import capacity from the Imax configuration key."""
 
         raw = self._configuration_value("Imax")
-        value = self._coerce_int(raw)
-        if value is not None and 40 <= value <= 100:
-            return value
-        return None
+        return self._coerce_int(raw)
 
     def _extract_configured_current_limit(
         self, *, previous_value: float | None = None
