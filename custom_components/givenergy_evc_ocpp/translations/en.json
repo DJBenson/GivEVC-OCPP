@@ -116,6 +116,9 @@
       },
       "last_seen": {
         "name": "Last seen"
+      },
+      "charging_schedule": {
+        "name": "Charging schedules"
       }
     },
     "button": {

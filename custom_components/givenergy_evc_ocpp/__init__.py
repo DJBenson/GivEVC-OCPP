@@ -20,11 +20,13 @@ from .const import (
     SERVICE_CHANGE_AVAILABILITY,
     SERVICE_CHANGE_CONFIGURATION,
     SERVICE_CLEAR_CHARGING_PROFILE,
+    SERVICE_CLEAR_CHARGING_SCHEDULE,
     SERVICE_GET_CONFIGURATION,
     SERVICE_REMOTE_START_TRANSACTION,
     SERVICE_REMOTE_STOP_TRANSACTION,
     SERVICE_RESET,
     SERVICE_SET_CHARGING_PROFILE,
+    SERVICE_SET_CHARGING_SCHEDULE,
     SERVICE_TRIGGER_MESSAGE,
     SERVICE_UNLOCK_CONNECTOR,
     SERVICE_UPDATE_FIRMWARE,
@@ -198,6 +200,19 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             retry_interval=call.data.get("retry_interval"),
         )
 
+    async def async_handle_set_charging_schedule(call: ServiceCall) -> None:
+        runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
+        await runtime.coordinator.async_set_charging_schedule(
+            days=call.data.get("days", []),
+            start=call.data["start"],
+            end=call.data["end"],
+            limit_a=call.data["limit_a"],
+        )
+
+    async def async_handle_clear_charging_schedule(call: ServiceCall) -> None:
+        runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
+        await runtime.coordinator.async_clear_charging_schedule()
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_RESET,
@@ -332,6 +347,37 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         ),
     )
 
+    _VALID_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_CHARGING_SCHEDULE,
+        async_handle_set_charging_schedule,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional("days", default=[]): vol.All(
+                    [vol.In(_VALID_DAYS)], vol.Unique()
+                ),
+                vol.Required("start"): cv.string,
+                vol.Required("end"): cv.string,
+                vol.Required("limit_a"): vol.All(
+                    vol.Coerce(int), vol.Range(min=6, max=32)
+                ),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CLEAR_CHARGING_SCHEDULE,
+        async_handle_clear_charging_schedule,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+            }
+        ),
+    )
+
     hass.data[DOMAIN]["services_registered"] = True
 
 
@@ -350,6 +396,8 @@ def _async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_CLEAR_CHARGING_PROFILE,
         SERVICE_CHANGE_AVAILABILITY,
         SERVICE_UPDATE_FIRMWARE,
+        SERVICE_SET_CHARGING_SCHEDULE,
+        SERVICE_CLEAR_CHARGING_SCHEDULE,
     ):
         hass.services.async_remove(DOMAIN, service)
     hass.data[DOMAIN]["services_registered"] = False

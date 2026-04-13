@@ -51,6 +51,7 @@ However...
 - Auto-adopts the first charger that connects
 - Live charger sensors for status, power, current, voltage, session energy, total energy, and more
 - Charger controls such as start/stop charging, reset, unlock connector, current limit, charge mode, and charger availability
+- Scheduled charging
 - Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
 
 ## Installation
@@ -171,11 +172,13 @@ Depending on what the charger reports, Home Assistant can expose:
 
 ## Firmware management
 
-The integration ships with an integrated firmware management tool which is disabled by default. When enabled, you can choose from one of three firmware versions (1.12-1.14) and apply the update directly to the EVC from within the integration! Firmware files are pulled from a separate repository of firmware files ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)) using a bundled manifest file. Files are cached on first download and validated before being sent to the charger - if there are any discrepancies, the file is re-downloaded. The drop down will show either ```[cached]``` or ```[download]``` depending upon whether the file exists locally or not.
+The integration includes a built-in firmware management tool which is disabled by default. Firmware versions are discovered from a configurable manifest URL, which by default points at the separate firmware repository ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)). When you enable the firmware server, the manifest is loaded and the available firmware files are shown in the drop down.
+
+Firmware files are downloaded on demand into the local cache and kept there for reuse. Before any update is sent to the charger, the integration verifies the cached file against the manifest checksum. If the file is missing or does not match, it is downloaded again. The drop down shows either `[cached]` or `[download]` to indicate whether the file already exists locally.
 
 1. Ensure you are running at least version 0.2.0 of the integration
 2. Enable the "Firmware server" toggle
-3. Select one of the versions from the drop down list
+3. Select a firmware file from the drop down list
 4. Click on the "Install selected firmware" button
 5. Wait! Keep an eye on the Firmware Status sensor - all being well it should go from Downloading -> Downloaded -> Installing -> Installed within a couple of minutes
 6. Check the version number at the top left hand corner of the integration once the sensor shows ```Installed```.
@@ -200,6 +203,36 @@ The integration ships with an integrated firmware management tool which is disab
 </table>
 
 WARNING! Use this at your own risk! I accept no liability if you brick your device (unlikely but needs to be said). Several people have upgraded their chargers to the latest version using this integration (and I've tested downgrading) but it's on you if it bricks your charger.
+
+## Scheduled charging
+
+The integration supports setting a charging schedule directly on the charger which will fire whether the charger is connected to a portal or not.
+
+Schedules are managed via Home Assistant service calls - there are two services:
+
+- `givenergy_evc_ocpp.set_charging_schedule` - set a schedule
+- `givenergy_evc_ocpp.clear_charging_schedule` - remove the active schedule
+
+### Setting a schedule
+
+The `set_charging_schedule` service takes the following parameters:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `start` | Yes | Start of the charging window (local time) |
+| `end` | Yes | End of the charging window (local time) - can be earlier than start for overnight windows |
+| `limit_a` | Yes | Maximum charge current in amps (6-32A) |
+| `days` | No | Days the schedule applies to - leave empty for every day, or pick a subset |
+
+The `days` field accepts any combination of `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`. Leave it empty (or select all seven) and the schedule runs every day. Select a subset and it becomes a weekly recurring schedule.
+
+All times are entered in local time - the integration handles the UTC conversion automatically.
+
+Only one schedule is active at a time. Setting a new one replaces the previous one. The `Charging schedules` sensor shows the current count and exposes each window as an attribute.
+
+### Clearing a schedule
+
+Calling `givenergy_evc_ocpp.clear_charging_schedule` sends a `ClearChargingProfile` to the charger, removing the active schedule. The charger will revert to its default behaviour (charge at full rate whenever a car is connected, subject to other settings).
 
 ## Diagnostics
 

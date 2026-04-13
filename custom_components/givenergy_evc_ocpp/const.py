@@ -54,6 +54,8 @@ SERVICE_SET_CHARGING_PROFILE = "set_charging_profile"
 SERVICE_CLEAR_CHARGING_PROFILE = "clear_charging_profile"
 SERVICE_CHANGE_AVAILABILITY = "change_availability"
 SERVICE_UPDATE_FIRMWARE = "update_firmware"
+SERVICE_SET_CHARGING_SCHEDULE = "set_charging_schedule"
+SERVICE_CLEAR_CHARGING_SCHEDULE = "clear_charging_schedule"
 
 ATTR_ENTRY_ID = "entry_id"
 

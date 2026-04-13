@@ -148,6 +148,7 @@ class GivEnergyEvcState:
     last_stop_transaction_request: dict[str, Any] | None = None
     last_stop_transaction_response: dict[str, Any] | None = None
     last_call_error: dict[str, Any] | None = None
+    charging_schedule: list[dict[str, Any]] = field(default_factory=list)
 
 
 class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
@@ -209,6 +210,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "firmware_server_host": self.data.firmware_server_host,
             "firmware_server_last_transfer": self.data.firmware_server_last_transfer,
             "selected_firmware_file": self.data.selected_firmware_file,
+            "charging_schedule": self.data.charging_schedule,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -316,6 +318,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.selected_firmware_file = (
             str(selected_firmware_file).strip() if selected_firmware_file else None
         )
+        self.data.charging_schedule = state.get("charging_schedule") or []
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
@@ -1270,6 +1273,148 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         result = await self._async_send_command("ClearChargingProfile", payload)
         await self.async_record_command_result("ClearChargingProfile", result)
+        return result
+
+    async def async_set_charging_schedule(
+        self,
+        days: list[str],
+        start: str,
+        end: str,
+        limit_a: int,
+    ) -> dict[str, Any]:
+        """Set a recurring charging schedule via SetChargingProfile.
+
+        days: list of day names e.g. ["mon","wed","fri"]; empty/all-7 → Daily.
+        start/end: "HH:MM" local time strings.
+        limit_a: charge current in amps.
+        """
+
+        ALL_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        day_index = {d: i for i, d in enumerate(ALL_DAYS)}
+
+        # Normalise days — default to every day
+        normalised = sorted(
+            {d.lower() for d in days if d.lower() in day_index},
+            key=lambda d: day_index[d],
+        )
+        all_days_selected = not normalised or set(normalised) == set(ALL_DAYS)
+        if all_days_selected:
+            normalised = ALL_DAYS
+
+        # Parse start/end as (hour, minute) pairs
+        def _parse_hhmm(t: str) -> tuple[int, int]:
+            parts = t.strip().split(":")
+            return int(parts[0]), int(parts[1])
+
+        sh, sm = _parse_hhmm(start)
+        eh, em = _parse_hhmm(end)
+        start_secs = sh * 3600 + sm * 60
+        end_secs = eh * 3600 + em * 60
+        # Duration in seconds (handle overnight wrap)
+        if end_secs <= start_secs:
+            duration = 86400 - start_secs + end_secs
+        else:
+            duration = end_secs - start_secs
+
+        if all_days_selected:
+            # Daily profile — offsets are seconds from midnight UTC (max 86400)
+            recurrency = "Daily"
+            # Anchor startSchedule to today's midnight UTC
+            now_utc = datetime.now(UTC)
+            anchor = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # Build period list: off at 0, on at start, off at end (with overnight wrap)
+            periods: list[tuple[int, int]] = []
+            if start_secs == 0:
+                periods.append((0, limit_a))
+                if end_secs > 0:
+                    periods.append((end_secs, 0))
+            else:
+                periods.append((0, 0))
+                periods.append((start_secs, limit_a))
+                if end_secs > start_secs:
+                    periods.append((end_secs, 0))
+                # overnight: wraps past midnight — end handled by next day's cycle
+        else:
+            # Weekly profile — offsets from most recent Monday 00:00 UTC
+            recurrency = "Weekly"
+            now_utc = datetime.now(UTC)
+            days_since_monday = now_utc.weekday()  # Monday=0
+            anchor = (now_utc - timedelta(days=days_since_monday)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+
+            # Expand each selected day into (on_offset, off_offset) pairs
+            on_off: list[tuple[int, int]] = []
+            for day_name in normalised:
+                base = day_index[day_name] * 86400
+                on_off.append((base + start_secs, base + end_secs if end_secs > start_secs else base + 86400 + end_secs))
+
+            # Sort and build flat period list with 0A gaps
+            on_off.sort()
+            periods = []
+            cursor = 0
+            for on, off in on_off:
+                if on > cursor:
+                    periods.append((cursor, 0))
+                periods.append((on, limit_a))
+                cursor = off
+            # Final off period if needed
+            if cursor < 604800:
+                periods.append((cursor, 0))
+
+        # Build OCPP chargingSchedulePeriod (startPeriod as string per portal convention)
+        ocpp_periods = [
+            {"startPeriod": str(p[0]), "limit": str(p[1])}
+            for p in sorted(periods)
+        ]
+
+        profile = {
+            "stackLevel": 0,
+            "chargingProfilePurpose": "TxDefaultProfile",
+            "chargingProfileKind": "Recurring",
+            "recurrencyKind": recurrency,
+            "chargingSchedule": {
+                "chargingRateUnit": "A",
+                "startSchedule": anchor.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                "chargingSchedulePeriod": ocpp_periods,
+            },
+            "chargingProfileId": 1,
+        }
+
+        result = await self._async_send_command(
+            "SetChargingProfile",
+            {"connectorId": 0, "csChargingProfiles": profile},
+        )
+        await self.async_record_command_result("SetChargingProfile", result)
+
+        # Store the schedule window for sensor visibility
+        self.data.charging_schedule = [
+            {
+                "days": normalised,
+                "start": start,
+                "end": end,
+                "limit_a": limit_a,
+                "duration_minutes": duration // 60,
+            }
+        ]
+        self._publish_state()
+        return result
+
+    async def async_clear_charging_schedule(self) -> dict[str, Any]:
+        """Clear the active charging schedule via ClearChargingProfile."""
+
+        result = await self._async_send_command(
+            "ClearChargingProfile",
+            {
+                "connectorId": 0,
+                "chargingProfilePurpose": "TxDefaultProfile",
+                "stackLevel": 0,
+            },
+        )
+        await self.async_record_command_result("ClearChargingProfile", result)
+        self.data.charging_schedule = []
+        self._publish_state()
         return result
 
     async def async_change_availability(self, operative: bool) -> dict[str, Any]:

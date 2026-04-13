@@ -292,6 +292,23 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
             "server_events": coordinator.data.firmware_server_events,
         },
     ),
+    GivEnergySensorDescription(
+        key="charging_schedule",
+        translation_key="charging_schedule",
+        icon="mdi:calendar-clock",
+        value_fn=lambda coordinator: len(coordinator.data.charging_schedule),
+        attrs_fn=lambda coordinator: {
+            f"schedule_{i + 1}_{attr}": val
+            for i, window in enumerate(coordinator.data.charging_schedule)
+            for attr, val in {
+                "days": ", ".join(d.capitalize() for d in window.get("days", [])),
+                "start": window.get("start"),
+                "end": window.get("end"),
+                "duration_minutes": window.get("duration_minutes"),
+                "limit_a": window.get("limit_a"),
+            }.items()
+        },
+    ),
 )
 
 

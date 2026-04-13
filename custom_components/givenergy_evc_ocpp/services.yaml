@@ -1,3 +1,74 @@
+set_charging_schedule:
+  name: Set charging schedule
+  description: >
+    Set a recurring charging schedule on the charger. All existing schedules are
+    replaced. Omit 'days' (or select all seven) for a daily schedule; select a
+    subset of days for a weekly schedule.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    days:
+      name: Days
+      description: Days the schedule applies to. Leave empty for every day.
+      required: false
+      default: []
+      example: ["mon", "wed", "fri"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - value: mon
+              label: Monday
+            - value: tue
+              label: Tuesday
+            - value: wed
+              label: Wednesday
+            - value: thu
+              label: Thursday
+            - value: fri
+              label: Friday
+            - value: sat
+              label: Saturday
+            - value: sun
+              label: Sunday
+    start:
+      name: Start time
+      description: Start of the charging window (local time).
+      required: true
+      default: "00:00"
+      example: "23:00"
+      selector:
+        time:
+    end:
+      name: End time
+      description: End of the charging window (local time). May be earlier than start for overnight windows.
+      required: true
+      default: "07:00"
+      example: "07:00"
+      selector:
+        time:
+    limit_a:
+      name: Charge limit (A)
+      description: Maximum charge current in amps during the window.
+      required: true
+      default: 32
+      example: 16
+      selector:
+        number:
+          min: 6
+          max: 32
+          step: 1
+          unit_of_measurement: A
+clear_charging_schedule:
+  name: Clear charging schedule
+  description: Remove the active charging schedule from the charger.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
 reset:
   name: Reset charger
   description: Send a soft or hard OCPP Reset command to the connected charger.
