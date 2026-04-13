@@ -51,7 +51,8 @@ However...
 - Auto-adopts the first charger that connects
 - Live charger sensors for status, power, current, voltage, session energy, total energy, and more
 - Charger controls such as start/stop charging, reset, unlock connector, current limit, charge mode, and charger availability
-- Scheduled charging
+- Scheduled charging - set time windows with a current limit, for specific days or every day
+- RFID tag management - add and remove authorised RFID tags on the charger's local list
 - Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
 
 ## Installation
@@ -144,31 +145,58 @@ The first charger that connects will normally be adopted automatically.
 
 Depending on what the charger reports, Home Assistant can expose:
 
-- `Car plugged in` - binary sensor
-- `Charger status` - sensor
-- `Connection status` - sensor
-- `Live power` - sensor (`kW`)
-- `Live current` - sensor (`A`)
-- `Live voltage` - sensor (`V`)
-- `Charge session energy` - sensor (`kWh`)
-- `Meter energy` - sensor (`kWh`)
-- `Charge start time` - sensor
-- `Charge end time` - sensor
-- `Charge session duration` - sensor (`s`, suggested as minutes in Home Assistant)
-- `Current limit` - sensor (`A`)
-- `EVSE min current` - sensor (`A`)
-- `EVSE max current` - sensor (`A`)
-- `Charge now` - switch
-- `Charger enabled` - switch
-- `Plug and Go` - switch
-- `Local Modbus` - switch (_yes_, it still supports local modbus, the limitations (modbus on ethernet only active after ~10 minutes) still apply...) So GivTCP can still read/control the EVC if you do this.
-- `Front panel LEDs` - switch
-- `Charge mode` - select
-- `Soft reset` - button
-- `Hard reset` - button
-- `Unlock connector` - button
-- `Trigger meter values` - button
-- `Refresh configuration` - button
+**Binary sensors**
+- `Car plugged in`
+
+**Sensors**
+- `Connection status`
+- `Charger status`
+- `Operational status`
+- `Live power` (`kW`)
+- `Live current` (`A`)
+- `Live voltage` (`V`)
+- `Charge session energy` (`kWh`)
+- `Meter energy` (`kWh`, total increasing)
+- `Charge start time`
+- `Charge end time`
+- `Charge session duration` (displayed in minutes)
+- `Current limit` (`A`)
+- `EVSE min current` (`A`)
+- `EVSE max current` (`A`)
+- `Charging schedules` - count of active schedule windows, with details as attributes
+- `Last seen` - diagnostic
+- `Heartbeat age` - diagnostic
+- `Error code` - diagnostic
+- `Serial number` - diagnostic
+- `Local IP address` - diagnostic
+- `Meter values interval` - diagnostic
+- `Firmware status` - diagnostic
+
+**Switches**
+- `Charge now`
+- `Charger enabled`
+- `Plug and Go` - when enabled, charging starts automatically as soon as a car is plugged in
+- `Local Modbus` - _yes_, it still supports local modbus, the limitations (modbus on ethernet only active after ~10 minutes) still apply, so GivTCP can still read/control the EVC alongside this integration
+- `Front panel LEDs`
+- `Firmware server` - enables the built-in firmware transfer server (see Firmware management)
+
+**Numbers**
+- `Current limit` (`A`) - set the maximum charge current
+- `Max import capacity` (`A`)
+- `Randomised delay duration` (`s`) - random delay before charging starts
+- `Suspended state timeout` (`s`)
+
+**Selects**
+- `Charge mode` - SuperEco / Eco / Boost / ModbusSlave
+- `Firmware file` - choose a firmware version to install (requires firmware server enabled)
+
+**Buttons**
+- `Soft reset`
+- `Hard reset`
+- `Unlock connector`
+- `Trigger meter values`
+- `Refresh configuration`
+- `Install selected firmware` (requires firmware server enabled)
 
 ## Firmware management
 
@@ -233,6 +261,51 @@ Only one schedule is active at a time. Setting a new one replaces the previous o
 ### Clearing a schedule
 
 Calling `givenergy_evc_ocpp.clear_charging_schedule` sends a `ClearChargingProfile` to the charger, removing the active schedule. The charger will revert to its default behaviour (charge at full rate whenever a car is connected, subject to other settings).
+
+## RFID tag management
+
+The integration lets you manage the charger's local RFID authorisation list directly.
+
+There are two service calls:
+
+- `givenergy_evc_ocpp.add_rfid_tag` - add or update a tag
+- `givenergy_evc_ocpp.remove_rfid_tag` - remove a tag
+
+### Adding a tag
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `id_tag` | Yes | The RFID tag identifier, as read by the charger |
+| `expiry_date` | No | Expiry date/time in ISO 8601 format - leave blank for no expiry |
+
+Example with no expiry:
+
+```yaml
+service: givenergy_evc_ocpp.add_rfid_tag
+data:
+  id_tag: "1234ABCD"
+```
+
+Example with an expiry date:
+
+```yaml
+service: givenergy_evc_ocpp.add_rfid_tag
+data:
+  id_tag: "1234ABCD"
+  expiry_date: "2026-12-31T00:00:00Z"
+```
+
+### Removing a tag
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `id_tag` | Yes | The RFID tag identifier to remove |
+
+```yaml
+service: givenergy_evc_ocpp.remove_rfid_tag
+data:
+  id_tag: "1234ABCD"
+```
 
 ## Diagnostics
 
