@@ -69,6 +69,43 @@ clear_charging_schedule:
       required: false
       selector:
         text:
+add_rfid_tag:
+  name: Add RFID tag
+  description: Add or update an RFID tag on the charger's local authorisation list.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    id_tag:
+      name: Tag ID
+      description: The RFID tag identifier (as read by the charger).
+      required: true
+      example: "1234ABCD"
+      selector:
+        text:
+    expiry_date:
+      name: Expiry date
+      description: Optional expiry date/time in ISO 8601 format. Leave blank for no expiry.
+      required: false
+      example: "2026-12-31T00:00:00Z"
+      selector:
+        text:
+remove_rfid_tag:
+  name: Remove RFID tag
+  description: Remove an RFID tag from the charger's local authorisation list.
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:
+    id_tag:
+      name: Tag ID
+      description: The RFID tag identifier to remove.
+      required: true
+      example: "1234ABCD"
+      selector:
+        text:
 reset:
   name: Reset charger
   description: Send a soft or hard OCPP Reset command to the connected charger.

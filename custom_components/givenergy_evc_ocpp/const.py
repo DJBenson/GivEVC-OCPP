@@ -56,6 +56,8 @@ SERVICE_CHANGE_AVAILABILITY = "change_availability"
 SERVICE_UPDATE_FIRMWARE = "update_firmware"
 SERVICE_SET_CHARGING_SCHEDULE = "set_charging_schedule"
 SERVICE_CLEAR_CHARGING_SCHEDULE = "clear_charging_schedule"
+SERVICE_ADD_RFID_TAG = "add_rfid_tag"
+SERVICE_REMOVE_RFID_TAG = "remove_rfid_tag"
 
 ATTR_ENTRY_ID = "entry_id"
 

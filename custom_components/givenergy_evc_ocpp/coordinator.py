@@ -149,6 +149,7 @@ class GivEnergyEvcState:
     last_stop_transaction_response: dict[str, Any] | None = None
     last_call_error: dict[str, Any] | None = None
     charging_schedule: list[dict[str, Any]] = field(default_factory=list)
+    rfid_tags: list[dict[str, Any]] = field(default_factory=list)
 
 
 class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
@@ -211,6 +212,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "firmware_server_last_transfer": self.data.firmware_server_last_transfer,
             "selected_firmware_file": self.data.selected_firmware_file,
             "charging_schedule": self.data.charging_schedule,
+            "rfid_tags": self.data.rfid_tags,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -319,6 +321,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             str(selected_firmware_file).strip() if selected_firmware_file else None
         )
         self.data.charging_schedule = state.get("charging_schedule") or []
+        self.data.rfid_tags = state.get("rfid_tags") or []
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
@@ -1414,6 +1417,55 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         await self.async_record_command_result("ClearChargingProfile", result)
         self.data.charging_schedule = []
+        self._publish_state()
+        return result
+
+    async def async_add_rfid_tag(
+        self, id_tag: str, expiry_date: str | None = None
+    ) -> dict[str, Any]:
+        """Add or update an RFID tag on the charger's local authorisation list."""
+
+        version_result = await self._async_send_command("GetLocalListVersion", {})
+        current_version = version_result.get("listVersion", 0) if isinstance(version_result, dict) else 0
+        new_version = current_version + 1
+
+        id_tag_info: dict[str, Any] = {"status": "Accepted"}
+        if expiry_date:
+            id_tag_info["expiryDate"] = expiry_date
+
+        payload = {
+            "listVersion": new_version,
+            "updateType": "Differential",
+            "localAuthorizationList": [
+                {"idTag": id_tag, "idTagInfo": id_tag_info}
+            ],
+        }
+        result = await self._async_send_command("SendLocalList", payload)
+        await self.async_record_command_result("SendLocalList", result)
+
+        # Mirror in coordinator state — update existing entry or append
+        tags = [t for t in self.data.rfid_tags if t["id_tag"] != id_tag]
+        tags.append({"id_tag": id_tag, "expiry_date": expiry_date})
+        self.data.rfid_tags = tags
+        self._publish_state()
+        return result
+
+    async def async_remove_rfid_tag(self, id_tag: str) -> dict[str, Any]:
+        """Remove an RFID tag from the charger's local authorisation list."""
+
+        version_result = await self._async_send_command("GetLocalListVersion", {})
+        current_version = version_result.get("listVersion", 0) if isinstance(version_result, dict) else 0
+        new_version = current_version + 1
+
+        payload = {
+            "listVersion": new_version,
+            "updateType": "Differential",
+            "localAuthorizationList": [{"idTag": id_tag}],
+        }
+        result = await self._async_send_command("SendLocalList", payload)
+        await self.async_record_command_result("SendLocalList", result)
+
+        self.data.rfid_tags = [t for t in self.data.rfid_tags if t["id_tag"] != id_tag]
         self._publish_state()
         return result
 

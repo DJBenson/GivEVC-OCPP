@@ -17,6 +17,7 @@ from .const import (
     ATTR_ENTRY_ID,
     DOMAIN,
     PLATFORMS,
+    SERVICE_ADD_RFID_TAG,
     SERVICE_CHANGE_AVAILABILITY,
     SERVICE_CHANGE_CONFIGURATION,
     SERVICE_CLEAR_CHARGING_PROFILE,
@@ -24,6 +25,7 @@ from .const import (
     SERVICE_GET_CONFIGURATION,
     SERVICE_REMOTE_START_TRANSACTION,
     SERVICE_REMOTE_STOP_TRANSACTION,
+    SERVICE_REMOVE_RFID_TAG,
     SERVICE_RESET,
     SERVICE_SET_CHARGING_PROFILE,
     SERVICE_SET_CHARGING_SCHEDULE,
@@ -213,6 +215,19 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
         await runtime.coordinator.async_clear_charging_schedule()
 
+    async def async_handle_add_rfid_tag(call: ServiceCall) -> None:
+        runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
+        await runtime.coordinator.async_add_rfid_tag(
+            id_tag=call.data["id_tag"],
+            expiry_date=call.data.get("expiry_date"),
+        )
+
+    async def async_handle_remove_rfid_tag(call: ServiceCall) -> None:
+        runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
+        await runtime.coordinator.async_remove_rfid_tag(
+            id_tag=call.data["id_tag"],
+        )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_RESET,
@@ -377,6 +392,29 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ADD_RFID_TAG,
+        async_handle_add_rfid_tag,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Required("id_tag"): cv.string,
+                vol.Optional("expiry_date"): cv.string,
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REMOVE_RFID_TAG,
+        async_handle_remove_rfid_tag,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Required("id_tag"): cv.string,
+            }
+        ),
+    )
 
     hass.data[DOMAIN]["services_registered"] = True
 
@@ -398,6 +436,8 @@ def _async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_UPDATE_FIRMWARE,
         SERVICE_SET_CHARGING_SCHEDULE,
         SERVICE_CLEAR_CHARGING_SCHEDULE,
+        SERVICE_ADD_RFID_TAG,
+        SERVICE_REMOVE_RFID_TAG,
     ):
         hass.services.async_remove(DOMAIN, service)
     hass.data[DOMAIN]["services_registered"] = False
