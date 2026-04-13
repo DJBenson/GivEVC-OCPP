@@ -214,6 +214,16 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         icon="mdi:ip-network-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda coordinator: coordinator.data.local_ip_address,
+        attrs_fn=lambda coordinator: {
+            "source": (
+                "ocpp_config"
+                if coordinator.data.local_ip_address
+                and coordinator.data.local_ip_address
+                != coordinator.data.websocket_remote_address
+                else "websocket_peer"
+            ),
+            "websocket_peer": coordinator.data.websocket_remote_address,
+        },
     ),
     GivEnergySensorDescription(
         key="meter_value_sample_interval_seconds",

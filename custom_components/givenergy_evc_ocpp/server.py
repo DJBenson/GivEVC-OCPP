@@ -81,6 +81,8 @@ class GivEnergyOcppServer:
             if isinstance(sockname, tuple) and sockname:
                 local_host = str(sockname[0])
 
+        remote_host = request.remote or None
+
         if not self.coordinator.can_accept_charge_point(candidate_id):
             await self.coordinator.async_note_rejected_charge_point(candidate_id)
             _LOGGER.warning("Rejected unexpected charger connection for %s", candidate_id)
@@ -104,7 +106,7 @@ class GivEnergyOcppServer:
             self.hass, websocket, self.coordinator, candidate_id
         )
         self._session = session
-        await self.coordinator.async_connection_opened(candidate_id, local_host)
+        await self.coordinator.async_connection_opened(candidate_id, local_host, remote_host)
 
         try:
             await session.run()

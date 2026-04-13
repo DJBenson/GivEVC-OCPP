@@ -144,6 +144,12 @@
       },
       "randomised_delay_duration": {
         "name": "Randomised delay duration"
+      },
+      "max_import_capacity": {
+        "name": "Max import capacity"
+      },
+      "suspended_state_timeout": {
+        "name": "Suspended state timeout"
       }
     },
     "select": {

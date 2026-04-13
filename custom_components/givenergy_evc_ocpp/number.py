@@ -25,6 +25,8 @@ async def async_setup_entry(
     async_add_entities([
         GivEnergyCurrentLimitNumber(coordinator),
         GivEnergyRandomisedDelayNumber(coordinator),
+        GivEnergyMaxImportCapacityNumber(coordinator),
+        GivEnergySuspendedStateTimeoutNumber(coordinator),
     ])
 
 
@@ -98,3 +100,82 @@ class GivEnergyRandomisedDelayNumber(GivEnergyEvcEntity, NumberEntity):
         """Set the randomised delay duration."""
 
         await self.coordinator.async_set_randomised_delay_duration(int(value))
+
+
+class GivEnergyMaxImportCapacityNumber(GivEnergyEvcEntity, NumberEntity):
+    """Slider for the maximum grid import capacity of the installation."""
+
+    _attr_translation_key = "max_import_capacity"
+    _attr_native_min_value = 40
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
+        """Initialise the number."""
+
+        super().__init__(coordinator, "max_import_capacity")
+
+    @property
+    def available(self) -> bool:
+        """Only available when connected and the charger has reported Imax."""
+
+        return (
+            super().available
+            and self.coordinator.data.connected
+            and self.coordinator.data.max_import_capacity_a is not None
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the current max import capacity setting."""
+
+        return self.coordinator.data.max_import_capacity_a
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the max import capacity."""
+
+        await self.coordinator.async_set_max_import_capacity(int(value))
+
+
+class GivEnergySuspendedStateTimeoutNumber(GivEnergyEvcEntity, NumberEntity):
+    """Slider for the suspended-state wait timeout (SuspevTime), in minutes."""
+
+    _attr_translation_key = "suspended_state_timeout"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 720
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: GivEnergyEvcCoordinator) -> None:
+        """Initialise the number."""
+
+        super().__init__(coordinator, "suspended_state_timeout")
+
+    @property
+    def available(self) -> bool:
+        """Only available when connected on firmware >= 1.14."""
+
+        return (
+            super().available
+            and self.coordinator.data.connected
+            and GivEnergyEvcCoordinator._firmware_version_at_least(
+                self.coordinator.data.firmware_version, 1, 14
+            )
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return the timeout in minutes (0 when unset)."""
+
+        seconds = self.coordinator.data.suspended_state_timeout_seconds
+        return (seconds // 60) if seconds is not None else 0
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the suspended-state timeout, converting minutes to seconds."""
+
+        await self.coordinator.async_set_suspended_state_timeout(int(value) * 60)

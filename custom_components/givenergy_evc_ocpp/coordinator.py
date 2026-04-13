@@ -117,14 +117,17 @@ class GivEnergyEvcState:
     live_current_a: float | None = None
     live_voltage_v: float | None = None
     current_limit_a: float | None = None
+    max_import_capacity_a: int | None = None
     plug_and_go_enabled: bool = False
     meter_value_sample_interval_seconds: int | None = None
     local_ip_address: str | None = None
+    websocket_remote_address: str | None = None
     charger_enabled: bool | None = None
     charge_mode: str | None = None
     local_modbus_enabled: bool | None = None
     front_panel_leds_enabled: bool | None = None
     randomised_delay_duration_seconds: int | None = None
+    suspended_state_timeout_seconds: int | None = None
     supported_feature_profiles: list[str] = field(default_factory=list)
     configuration: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_boot_notification: dict[str, Any] | None = None
@@ -573,7 +576,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self._publish_state()
 
     async def async_connection_opened(
-        self, candidate_id: str | None, local_host: str | None = None
+        self,
+        candidate_id: str | None,
+        local_host: str | None = None,
+        remote_host: str | None = None,
     ) -> None:
         """Handle a websocket connection opening."""
 
@@ -581,6 +587,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             self.data.path_charge_point_id = candidate_id
         if local_host:
             self.data.firmware_server_host = local_host
+        if remote_host:
+            self.data.websocket_remote_address = remote_host
 
         if (
             candidate_id
@@ -1050,12 +1058,16 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.current_limit_a = self._extract_configured_current_limit(
             previous_value=self.data.current_limit_a
         )
+        self.data.max_import_capacity_a = self._extract_max_import_capacity()
         self.data.meter_value_sample_interval_seconds = self._coerce_int(
             self._configuration_value("MeterValueSampleInterval")
         )
         local_ip_address = self._configuration_value("LocalIPAddress")
+        reported = str(local_ip_address).strip() if local_ip_address not in (None, "") else None
         self.data.local_ip_address = (
-            str(local_ip_address).strip() if local_ip_address not in (None, "") else None
+            reported
+            if reported and reported != "0.0.0.0"
+            else self.data.websocket_remote_address
         )
         self.data.charge_mode = self._normalize_charge_mode(
             self._configuration_value("EcoMode")
@@ -1068,6 +1080,9 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         self.data.randomised_delay_duration_seconds = self._coerce_int(
             self._configuration_value("RandomisedDelayDuration")
+        )
+        self.data.suspended_state_timeout_seconds = self._coerce_int(
+            self._configuration_value("SuspevTime")
         )
         self._publish_state()
         return result
@@ -1128,7 +1143,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 self.data.configuration[key] = {"key": key, "readonly": False}
             self.data.configuration[key]["value"] = str(value)
 
-            if key in {"ChargeRate", "Imax", "MaxCurrent"}:
+            if key in {"ChargeRate", "MaxCurrent"}:
                 if key == "ChargeRate":
                     encoded_amperage = self._coerce_float(value)
                     if encoded_amperage is not None:
@@ -1139,6 +1154,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                         fallback=self.data.current_limit_a,
                         config_key=key,
                     )
+            if key == "Imax":
+                capacity = self._coerce_int(value)
+                if capacity is not None and 40 <= capacity <= 100:
+                    self.data.max_import_capacity_a = capacity
             if key == "EcoMode":
                 self.data.charge_mode = self._normalize_charge_mode(value)
             if key == "MeterValueSampleInterval":
@@ -1149,6 +1168,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 self.data.front_panel_leds_enabled = self._coerce_bool(value)
             if key == "RandomisedDelayDuration":
                 self.data.randomised_delay_duration_seconds = self._coerce_int(value)
+            if key == "SuspevTime":
+                self.data.suspended_state_timeout_seconds = self._coerce_int(value)
 
         self._publish_state()
         return result
@@ -1304,8 +1325,6 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         key = (
             "ChargeRate"
             if "ChargeRate" in self.data.configuration
-            else "Imax"
-            if "Imax" in self.data.configuration
             else "MaxCurrent"
         )
         value: float = round(amperage, 1)
@@ -1314,6 +1333,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if key == "ChargeRate":
             value = round(amperage * 10, 1)
         return await self.async_change_configuration(key, value)
+
+    async def async_set_max_import_capacity(self, amperage: int) -> dict[str, Any]:
+        """Set the maximum grid import capacity allowed by the installation."""
+
+        amperage = max(40, min(100, int(amperage)))
+        return await self.async_change_configuration("Imax", amperage)
 
     async def async_set_charge_mode(self, mode: str) -> dict[str, Any]:
         """Change the GivEnergy charge mode."""
@@ -1343,6 +1368,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         return await self.async_change_configuration(
             "RandomisedDelayDuration", int(seconds)
         )
+
+    async def async_set_suspended_state_timeout(self, seconds: int) -> dict[str, Any]:
+        """Set the suspended-state wait timeout in seconds (0 = disabled)."""
+
+        seconds = max(0, min(43200, int(seconds)))
+        return await self.async_change_configuration("SuspevTime", seconds)
 
     async def async_set_plug_and_go_enabled(self, enabled: bool) -> dict[str, Any]:
         """Enable or disable Home Assistant-side plug-and-go behavior."""
@@ -1976,13 +2007,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         return self.data.configuration.get(key, {}).get("value")
 
+    def _extract_max_import_capacity(self) -> int | None:
+        """Extract the max import capacity from the Imax configuration key."""
+
+        raw = self._configuration_value("Imax")
+        value = self._coerce_int(raw)
+        if value is not None and 40 <= value <= 100:
+            return value
+        return None
+
     def _extract_configured_current_limit(
         self, *, previous_value: float | None = None
     ) -> float | None:
         """Extract the configured charge-current limit from charger settings."""
 
         saw_candidate = False
-        for key in ("ChargeRate", "Imax", "MaxCurrent"):
+        for key in ("ChargeRate", "MaxCurrent"):
             raw_value = self._configuration_value(key)
             if raw_value in (None, ""):
                 continue
@@ -2504,3 +2544,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if value in (None, ""):
             return []
         return [item.strip() for item in str(value).split(",") if item.strip()]
+
+    @staticmethod
+    def _firmware_version_at_least(version: str | None, major: int, minor: int) -> bool:
+        """Return True if the reported firmware version is >= major.minor.
+
+        Firmware version strings follow the pattern ``AC_GL1_1.14`` — the
+        version number is the segment after the final underscore.
+        """
+
+        if not version:
+            return False
+        try:
+            numeric = version.rsplit("_", 1)[-1]
+            parts = numeric.split(".")
+            fw_major = int(parts[0])
+            fw_minor = int(parts[1]) if len(parts) > 1 else 0
+            return (fw_major, fw_minor) >= (major, minor)
+        except (ValueError, IndexError):
+            return False
