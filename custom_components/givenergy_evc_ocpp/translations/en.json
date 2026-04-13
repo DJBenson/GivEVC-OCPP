@@ -119,6 +119,9 @@
       },
       "charging_schedule": {
         "name": "Charging schedules"
+      },
+      "rfid_tags": {
+        "name": "RFID tags"
       }
     },
     "button": {

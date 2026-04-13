@@ -309,6 +309,21 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
             }.items()
         },
     ),
+    GivEnergySensorDescription(
+        key="rfid_tags",
+        translation_key="rfid_tags",
+        icon="mdi:card-account-details-outline",
+        value_fn=lambda coordinator: len(coordinator.data.rfid_tags),
+        attrs_fn=lambda coordinator: {
+            f"tag_{i + 1}_{attr}": val
+            for i, tag in enumerate(coordinator.data.rfid_tags)
+            for attr, val in {
+                "id_tag": tag.get("id_tag"),
+                "name": tag.get("name"),
+                "status": tag.get("status"),
+            }.items()
+        },
+    ),
 )
 
 
