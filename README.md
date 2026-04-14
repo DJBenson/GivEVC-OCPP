@@ -177,7 +177,7 @@ Typical setup is:
 
 Existing single-charger installs keep the current legacy behavior and entity IDs.
 
-Additional chargers are discovered automatically under the same listener and are added to the hub as soon as they connect.
+Additional chargers are discovered under the same listener and can then be accepted explicitly from Home Assistant.
 
 ## What you get
 

@@ -6,11 +6,13 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfElectricCurrent, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DEFAULT_EVSE_MAX_CURRENT, DEFAULT_EVSE_MIN_CURRENT, DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
 from .entity import GivEnergyEvcEntity
+from .hub import SIGNAL_ACCEPTED_CHARGE_POINT
 
 
 async def async_setup_entry(
@@ -22,12 +24,27 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
-    async_add_entities([
-        GivEnergyCurrentLimitNumber(coordinator),
-        GivEnergyRandomisedDelayNumber(coordinator),
-        GivEnergyMaxImportCapacityNumber(coordinator),
-        GivEnergySuspendedStateTimeoutNumber(coordinator),
-    ])
+    def _entities(target: GivEnergyEvcCoordinator) -> list[NumberEntity]:
+        return [
+            GivEnergyCurrentLimitNumber(target),
+            GivEnergyRandomisedDelayNumber(target),
+            GivEnergyMaxImportCapacityNumber(target),
+            GivEnergySuspendedStateTimeoutNumber(target),
+        ]
+
+    async_add_entities(_entities(coordinator))
+    for accepted in runtime.hub.accepted_secondary_coordinators():
+        async_add_entities(_entities(accepted))
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass,
+            SIGNAL_ACCEPTED_CHARGE_POINT,
+            lambda entry_id, target: (
+                entry_id == entry.entry_id and async_add_entities(_entities(target))
+            ),
+        )
+    )
 
 
 class GivEnergyCurrentLimitNumber(GivEnergyEvcEntity, NumberEntity):
