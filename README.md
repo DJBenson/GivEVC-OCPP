@@ -132,6 +132,8 @@ Examples:
 - `ws://192.168.1.50:7655`
 - `ws://192.168.1.50:7655/<charge_point_id>`
 
+NOTE: GivEnergy EVC's will automatically append their charge point ID (serial number) to the websocket URL.
+
 If the charger connects without a path, that is fine. The integration can still identify and adopt it from the boot details it sends after connecting.
 
 ## First setup
