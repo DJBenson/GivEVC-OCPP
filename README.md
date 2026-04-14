@@ -25,13 +25,13 @@ It runs a local OCPP server inside Home Assistant so your charger can connect di
   <tbody>
     <tr>
       <td valign="top">
-        <img width="323" height="850" alt="image" src="https://github.com/user-attachments/assets/f3eb35b8-0f28-4ba5-b7de-a704e82b8ae1" />
+        <img width="290" height="853" alt="image" src="https://github.com/user-attachments/assets/0eb9fe80-c406-4f8b-9016-c6631924286e" />
       </td>
       <td valign="top">
-        <img width="320" height="670" alt="image" src="https://github.com/user-attachments/assets/3daae2fd-ee3d-41db-b528-e72e3196bbff" />
+        <img width="284" height="878" alt="image" src="https://github.com/user-attachments/assets/e3704987-7249-4f0d-9a8e-5e85234dc0a5" />
       </td>
       <td valign="top">
-        <img width="318" height="512" alt="image" src="https://github.com/user-attachments/assets/0e0eecef-d848-480a-bda1-19a11c596d5f" />
+        <img width="287" height="675" alt="image" src="https://github.com/user-attachments/assets/a14e03b4-d294-4c21-95f6-811177f35278" />
       </td>
     </tr>
   </tbody>
