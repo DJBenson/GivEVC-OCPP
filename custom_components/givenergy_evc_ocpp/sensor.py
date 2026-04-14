@@ -234,6 +234,49 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         value_fn=lambda coordinator: coordinator.data.meter_value_sample_interval_seconds,
     ),
     GivEnergySensorDescription(
+        key="last_message_response",
+        translation_key="last_message_response",
+        icon="mdi:message-reply-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda coordinator: coordinator.data.last_message_response_status,
+        attrs_fn=lambda coordinator: {
+            "action": coordinator.data.last_message_response_action,
+            "captured_at": _format_local_timestamp(
+                coordinator.data.last_message_response_at
+            ),
+            "payload": coordinator.data.last_message_response_payload,
+        },
+    ),
+    GivEnergySensorDescription(
+        key="cp_voltage",
+        translation_key="cp_voltage",
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        suggested_display_precision=1,
+        value_fn=lambda coordinator: coordinator.data.cp_voltage_v,
+        attrs_fn=lambda coordinator: {
+            "last_cp_response": coordinator.data.last_command_results.get(
+                "DataTransfer:CP"
+            ),
+        },
+    ),
+    GivEnergySensorDescription(
+        key="cp_duty_cycle",
+        translation_key="cp_duty_cycle",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement="%",
+        suggested_display_precision=0,
+        value_fn=lambda coordinator: coordinator.data.cp_duty_cycle_percent,
+        attrs_fn=lambda coordinator: {
+            "last_cp_response": coordinator.data.last_command_results.get(
+                "DataTransfer:CP"
+            ),
+        },
+    ),
+    GivEnergySensorDescription(
         key="firmware_status",
         translation_key="firmware_status",
         icon="mdi:download-network-outline",

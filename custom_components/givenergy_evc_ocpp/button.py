@@ -46,6 +46,20 @@ BUTTONS: tuple[GivEnergyButtonDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.async_reset("Hard"),
     ),
+    GivEnergyButtonDescription(
+        key="factory_reset",
+        translation_key="factory_reset",
+        icon="mdi:alert-octagram-outline",
+        entity_category=EntityCategory.CONFIG,
+        press_fn=lambda coordinator: coordinator.async_factory_reset(),
+    ),
+    GivEnergyButtonDescription(
+        key="read_cp_voltage_and_duty_cycle",
+        translation_key="read_cp_voltage_and_duty_cycle",
+        icon="mdi:sine-wave",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        press_fn=lambda coordinator: coordinator.async_read_cp_voltage_and_duty_cycle(),
+    ),
     # --- Diagnostic buttons ---
     GivEnergyButtonDescription(
         key="trigger_meter_values",

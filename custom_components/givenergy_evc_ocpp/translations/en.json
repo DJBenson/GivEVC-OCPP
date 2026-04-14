@@ -108,6 +108,15 @@
       "meter_value_sample_interval_seconds": {
         "name": "Meter values interval"
       },
+      "last_message_response": {
+        "name": "Last message response"
+      },
+      "cp_voltage": {
+        "name": "CP voltage"
+      },
+      "cp_duty_cycle": {
+        "name": "CP duty cycle"
+      },
       "firmware_status": {
         "name": "Firmware status"
       },
@@ -133,6 +142,12 @@
       },
       "reset_hard": {
         "name": "Hard reset"
+      },
+      "factory_reset": {
+        "name": "Factory reset"
+      },
+      "read_cp_voltage_and_duty_cycle": {
+        "name": "Read CP voltage & duty cycle"
       },
       "unlock_connector": {
         "name": "Unlock connector"

@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -49,6 +50,10 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+CP_READING_PATTERN = re.compile(
+    r"CP_Voltage:(?P<voltage>\d+(?:\.\d+)?)V,CP_Duty:(?P<duty>\d+(?:\.\d+)?)%"
+)
 
 STORAGE_VERSION = 1
 FIRMWARE_DOWNLOADING_TIMEOUT = timedelta(minutes=10)
@@ -116,6 +121,8 @@ class GivEnergyEvcState:
     live_power_kw: float | None = None
     live_current_a: float | None = None
     live_voltage_v: float | None = None
+    cp_voltage_v: float | None = None
+    cp_duty_cycle_percent: float | None = None
     current_limit_a: float | None = None
     max_import_capacity_a: int | None = None
     plug_and_go_enabled: bool = False
@@ -136,6 +143,10 @@ class GivEnergyEvcState:
     last_get_configuration: dict[str, Any] | None = None
     last_update_firmware_request: dict[str, Any] | None = None
     last_command_results: dict[str, Any] = field(default_factory=dict)
+    last_message_response_action: str | None = None
+    last_message_response_status: str | None = None
+    last_message_response_at: datetime | None = None
+    last_message_response_payload: Any = None
     meter_samples: list[dict[str, Any]] = field(default_factory=list)
     parsed_meter_values: dict[str, Any] = field(default_factory=dict)
     rejected_charge_points: list[str] = field(default_factory=list)
@@ -188,6 +199,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "session_duration_seconds": self.data.session_duration_seconds,
             "session_energy_kwh": self.data.session_energy_kwh,
             "total_energy_kwh": self.data.total_energy_kwh,
+            "cp_voltage_v": self.data.cp_voltage_v,
+            "cp_duty_cycle_percent": self.data.cp_duty_cycle_percent,
             "status": self.data.status,
             "charge_point_id": self.data.charge_point_id,
             "charge_point_serial_number": self.data.charge_point_serial_number,
@@ -213,6 +226,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "selected_firmware_file": self.data.selected_firmware_file,
             "charging_schedule": self.data.charging_schedule,
             "rfid_tags": self.data.rfid_tags,
+            "last_message_response_action": self.data.last_message_response_action,
+            "last_message_response_status": self.data.last_message_response_status,
+            "last_message_response_at": self.data.last_message_response_at,
+            "last_message_response_payload": self.data.last_message_response_payload,
         }
 
     def restore_reload_state(self, state: dict[str, Any] | None) -> None:
@@ -238,6 +255,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         self.data.session_energy_kwh = self._coerce_float(state.get("session_energy_kwh"))
         self.data.total_energy_kwh = self._coerce_float(state.get("total_energy_kwh"))
+        self.data.cp_voltage_v = self._coerce_float(state.get("cp_voltage_v"))
+        self.data.cp_duty_cycle_percent = self._coerce_float(
+            state.get("cp_duty_cycle_percent")
+        )
         self.data.status = state.get("status")
         self.data.charge_point_id = state.get("charge_point_id")
         self.data.charge_point_serial_number = state.get("charge_point_serial_number")
@@ -322,6 +343,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         self.data.charging_schedule = state.get("charging_schedule") or []
         self.data.rfid_tags = state.get("rfid_tags") or []
+        last_message_response_action = state.get("last_message_response_action")
+        self.data.last_message_response_action = (
+            str(last_message_response_action).strip()
+            if last_message_response_action
+            else None
+        )
+        last_message_response_status = state.get("last_message_response_status")
+        self.data.last_message_response_status = (
+            str(last_message_response_status).strip()
+            if last_message_response_status
+            else None
+        )
+        self.data.last_message_response_at = self._coerce_datetime(
+            state.get("last_message_response_at")
+        )
+        self.data.last_message_response_payload = state.get("last_message_response_payload")
 
         if self.data.transaction_id is not None:
             self._next_transaction_id = max(self._next_transaction_id, self.data.transaction_id + 1)
@@ -889,6 +926,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Store the last result for a central-system initiated command."""
 
         self.data.last_command_results[action] = result
+        self.data.last_message_response_action = action
+        self.data.last_message_response_status = self._derive_command_result_status(
+            result
+        )
+        self.data.last_message_response_at = datetime.now(UTC)
+        self.data.last_message_response_payload = result
         self._publish_state()
 
     async def _async_handle_firmware_server_event(self, event: dict[str, Any]) -> None:
@@ -1206,6 +1249,46 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             payload["connectorId"] = connector_id
         result = await self._async_send_command("TriggerMessage", payload)
         await self.async_record_command_result("TriggerMessage", result)
+        return result
+
+    async def async_factory_reset(self) -> dict[str, Any]:
+        """Issue the vendor-specific factory reset DataTransfer command."""
+
+        result = await self._async_send_command(
+            "DataTransfer",
+            {
+                "vendorId": "GivEnergy",
+                "messageId": "Setting",
+                "data": "Refactory",
+            },
+        )
+        await self.async_record_command_result("DataTransfer", result)
+        return result
+
+    async def async_read_cp_voltage_and_duty_cycle(self) -> dict[str, Any]:
+        """Read CP voltage and duty cycle through the vendor DataTransfer path."""
+
+        result = await self._async_send_command(
+            "DataTransfer",
+            {
+                "vendorId": "GivEnergy",
+                "messageId": "Parameter",
+                "data": "CP",
+            },
+        )
+        await self.async_record_command_result("DataTransfer", result)
+        await self.async_record_command_result("DataTransfer:CP", result)
+
+        status = str(result.get("status", "Unknown"))
+        data = result.get("data")
+        parsed = self._parse_cp_reading(data)
+        if status == "Accepted" and parsed is not None:
+            self.data.cp_voltage_v = parsed["voltage_v"]
+            self.data.cp_duty_cycle_percent = parsed["duty_cycle_percent"]
+            self._publish_state()
+        elif status == "Accepted":
+            _LOGGER.warning("Unable to parse CP reading payload: %r", data)
+
         return result
 
     async def async_remote_start_transaction(
@@ -2049,6 +2132,32 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             action, payload, timeout=self.command_timeout
         )
         return result
+
+    def _parse_cp_reading(self, payload: Any) -> dict[str, float] | None:
+        """Parse a CP voltage/duty cycle payload into structured values."""
+
+        if not isinstance(payload, str):
+            return None
+
+        match = CP_READING_PATTERN.fullmatch(payload.strip())
+        if match is None:
+            return None
+
+        return {
+            "voltage_v": float(match.group("voltage")),
+            "duty_cycle_percent": float(match.group("duty")),
+        }
+
+    def _derive_command_result_status(self, result: Any) -> str:
+        """Extract a user-facing status from an outbound command response."""
+
+        if isinstance(result, dict):
+            status = result.get("status")
+            if status is not None:
+                return str(status)
+            if result == {}:
+                return "Success"
+        return "Unknown"
 
     @callback
     def _publish_state(self) -> None:
