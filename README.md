@@ -50,6 +50,10 @@ However...
 2. If you would prefer to use GivTCP but it doesn't work - *THIS IS FOR YOU!*
 3. If you just love tinkering (for now, this change can be undone) - *THIS MAY BE FOR YOU!*
 
+...one final point...
+
+You can use my integration to toggle the local modbus setting which means you can have the best of both worlds; be disconnected from the GivEnergy cloud and also use GivTCP.
+
 ## Features
 
 - Local OCPP 1.6J listener built into Home Assistant
