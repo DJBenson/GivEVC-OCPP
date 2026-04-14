@@ -27,11 +27,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_ADOPT_FIRST_CHARGER,
     CONF_COMMAND_TIMEOUT,
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
-    CONF_EXPECTED_CHARGE_POINT_ID,
     CONF_FIRMWARE_MANIFEST_URL,
     CONF_FIRMWARE_SERVER_PORT,
     LEGACY_CONF_FIRMWARE_FTP_PORT,
@@ -474,29 +472,6 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
 
     @property
-    def expected_charge_point_id(self) -> str | None:
-        """Return the configured charge point path filter."""
-
-        value = self.entry.options.get(
-            CONF_EXPECTED_CHARGE_POINT_ID,
-            self.entry.data.get(CONF_EXPECTED_CHARGE_POINT_ID),
-        )
-        if value:
-            return str(value).strip()
-        return None
-
-    @property
-    def adopt_first_charger(self) -> bool:
-        """Return whether the first charger should be adopted automatically."""
-
-        return bool(
-            self.entry.options.get(
-                CONF_ADOPT_FIRST_CHARGER,
-                self.entry.data.get(CONF_ADOPT_FIRST_CHARGER, True),
-            )
-        )
-
-    @property
     def listen_port(self) -> int:
         """Return the configured listen port."""
 
@@ -637,13 +612,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     def can_accept_charge_point(self, candidate_id: str | None) -> bool:
         """Return whether the candidate charge point should be accepted."""
 
-        expected = self.expected_charge_point_id
-        adopted = self.data.charge_point_id
-
-        if expected and candidate_id and candidate_id != expected:
-            return False
-        if adopted and candidate_id and candidate_id != adopted:
-            return False
+        del candidate_id
         return True
 
     async def async_note_rejected_charge_point(self, candidate_id: str | None) -> None:
@@ -668,12 +637,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if remote_host:
             self.data.websocket_remote_address = remote_host
 
-        if (
-            candidate_id
-            and not self.data.charge_point_id
-            and self.adopt_first_charger
-            and not self.expected_charge_point_id
-        ):
+        if candidate_id and not self.data.charge_point_id:
             self.data.charge_point_id = candidate_id
             self.data.adopted = True
 
@@ -706,19 +670,14 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.charge_box_serial_number = payload.get("chargeBoxSerialNumber")
 
         charge_point_id = (
-            self.expected_charge_point_id
-            or self.data.charge_point_id
+            self.data.charge_point_id
             or candidate_id
             or self.data.charge_point_serial_number
             or self.data.charge_box_serial_number
         )
         if charge_point_id:
             self.data.charge_point_id = charge_point_id
-            if self.data.adopted or (
-                self._legacy_entity_ids
-                and self.adopt_first_charger
-                and not self.expected_charge_point_id
-            ):
+            if self.data.adopted or self._legacy_entity_ids:
                 self.data.adopted = True
 
         self._touch_last_seen()

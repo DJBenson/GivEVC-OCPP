@@ -7,7 +7,6 @@ TITLE = "GivEnergy EVC OCPP"
 
 DEFAULT_LISTEN_HOST = "0.0.0.0"
 DEFAULT_LISTEN_PORT = 7655
-DEFAULT_ADOPT_FIRST_CHARGER = True
 DEFAULT_DEBUG_LOGGING = False
 DEFAULT_ENHANCED_LOGGING = False
 DEFAULT_COMMAND_TIMEOUT = 20
@@ -25,8 +24,6 @@ CONF_LISTEN_PORT = "listen_port"
 CONF_FIRMWARE_SERVER_PORT = "firmware_server_port"
 CONF_FIRMWARE_MANIFEST_URL = "firmware_manifest_url"
 LEGACY_CONF_FIRMWARE_FTP_PORT = "firmware_ftp_port"
-CONF_EXPECTED_CHARGE_POINT_ID = "expected_charge_point_id"
-CONF_ADOPT_FIRST_CHARGER = "adopt_first_charger"
 CONF_DEBUG_LOGGING = "debug_logging"
 CONF_ENHANCED_LOGGING = "enhanced_logging"
 CONF_COMMAND_TIMEOUT = "command_timeout_seconds"
