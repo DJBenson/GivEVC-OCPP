@@ -176,6 +176,9 @@ Depending on what the charger reports, Home Assistant can expose:
 - `Serial number` - diagnostic
 - `Local IP address` - diagnostic
 - `Meter values interval` - diagnostic
+- `Last message response` - diagnostic, shows the last charger command outcome such as `Accepted`, `Rejected`, or `RebootRequired`
+- `CP voltage` (`V`) - diagnostic, populated when the CP read button is pressed
+- `CP duty cycle` (`%`) - diagnostic, populated when the CP read button is pressed
 - `Firmware status` - diagnostic
 
 **Switches**
@@ -199,10 +202,48 @@ Depending on what the charger reports, Home Assistant can expose:
 **Buttons**
 - `Soft reset`
 - `Hard reset`
+- `Factory reset`
 - `Unlock connector`
+- `Read CP voltage & duty cycle`
 - `Trigger meter values`
 - `Refresh configuration`
 - `Install selected firmware` (requires firmware server enabled)
+
+## CP voltage and duty cycle
+
+The integration can query the charger's Control Pilot state using the `Read CP voltage & duty cycle` button. When pressed, the charger returns a CP voltage reading and PWM duty cycle, which are then exposed through the `CP voltage` and `CP duty cycle` diagnostic sensors.
+
+These values are useful when diagnosing cable detection, EV readiness, and PWM current signalling between the charger and the vehicle.
+
+### CP voltages
+
+| CP state | Voltage range | Meaning |
+|----------|---------------|---------|
+| State 0 (Off) | `0 V` or `-12 V` | The EVSE is off. No charging power is being offered. |
+| State 1 (Standby) | `+12 V` | Charger is ready, but no EV is requesting charge. |
+| State 2 (EV connected) | `+9 V` | EV is connected and ready. Charger is advertising available current via PWM. |
+| State 3 (Charging) | `+6 V` | Charging is in progress. |
+| State 4 (Ventilation required) | `+3 V` | Rare legacy state indicating ventilation is required. |
+| State E (Fault) | `0 V` or `-12 V` | Fault condition on the EVSE or vehicle side. |
+
+### Duty cycles
+
+For normal AC charging, duty cycle represents the maximum current the charger is advertising on the control pilot line.
+
+| Duty cycle | Meaning |
+|------------|---------|
+| `< 3%` | No charging allowed |
+| `3%` to `7%` | High-level digital communication required |
+| `> 7%` to `< 8%` | No charging allowed |
+| `8%` to `< 10%` | Minimum AC charging current, effectively `6 A` |
+| `10%` to `85%` | Available current = `duty_cycle * 0.6 A` |
+| `> 85%` to `96%` | Available current = `(duty_cycle - 64) * 2.5 A` |
+| `> 96%` to `97%` | Maximum standard AC current, effectively `80 A` |
+| `> 97%` | No charging allowed |
+
+Example:
+
+- A duty cycle of `53%` means the charger is advertising about `31.8 A` (`53 * 0.6`)
 
 ## Firmware management
 
