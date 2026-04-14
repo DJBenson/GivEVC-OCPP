@@ -14,8 +14,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
-from .entity import GivEnergyEvcEntity, GivEnergyPendingChargePointEntity
-from .hub import SIGNAL_ACCEPTED_CHARGE_POINT, SIGNAL_PENDING_CHARGE_POINT
+from .entity import GivEnergyEvcEntity
+from .hub import SIGNAL_ACCEPTED_CHARGE_POINT
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -100,15 +100,11 @@ async def async_setup_entry(
         [
             *(_accepted_entities(coordinator)),
             GivEnergyInstallSelectedFirmwareButton(coordinator),
-            GivEnergyAcceptDiscoveredChargerButton(coordinator, is_primary=True),
         ]
     )
 
     for accepted in hub.accepted_secondary_coordinators():
         async_add_entities(_accepted_entities(accepted))
-
-    for pending in hub.pending_secondary_coordinators():
-        async_add_entities([GivEnergyAcceptDiscoveredChargerButton(pending)])
 
     entry.async_on_unload(
         async_dispatcher_connect(
@@ -117,16 +113,6 @@ async def async_setup_entry(
             lambda entry_id, target: (
                 entry_id == entry.entry_id
                 and async_add_entities(_accepted_entities(target))
-            ),
-        )
-    )
-    entry.async_on_unload(
-        async_dispatcher_connect(
-            hass,
-            SIGNAL_PENDING_CHARGE_POINT,
-            lambda entry_id, target: (
-                entry_id == entry.entry_id
-                and async_add_entities([GivEnergyAcceptDiscoveredChargerButton(target)])
             ),
         )
     )
@@ -198,56 +184,3 @@ class GivEnergyInstallSelectedFirmwareButton(GivEnergyEvcEntity, ButtonEntity):
         """Trigger a firmware update from the selected bundled file."""
 
         await self.coordinator.async_install_selected_firmware()
-
-
-class GivEnergyAcceptDiscoveredChargerButton(
-    GivEnergyPendingChargePointEntity, ButtonEntity
-):
-    """Button that accepts a newly discovered additional charger."""
-
-    _attr_translation_key = "accept_discovered_charger"
-    _attr_icon = "mdi:plus-circle-outline"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(
-        self,
-        coordinator: GivEnergyEvcCoordinator,
-        *,
-        is_primary: bool = False,
-    ) -> None:
-        """Initialise the accept button."""
-
-        key = "accept_discovered_charger" if is_primary else "accept_discovered_charger_pending"
-        super().__init__(coordinator, key)
-        self._is_primary = is_primary
-
-    @property
-    def available(self) -> bool:
-        """Only expose acceptance while the charger is still pending."""
-
-        charge_point_id = (
-            self.coordinator.data.charge_point_id or self.coordinator.data.path_charge_point_id
-        )
-        return bool(charge_point_id and not self.coordinator.data.adopted)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
-        """Return discovery metadata."""
-
-        return {
-            "charge_point_id": self.coordinator.data.charge_point_id
-            or self.coordinator.data.path_charge_point_id,
-            "serial_number": self.coordinator.data.charge_point_serial_number
-            or self.coordinator.data.charge_box_serial_number,
-        }
-
-    async def async_press(self) -> None:
-        """Accept the discovered charger into the full entity set."""
-
-        runtime = self.hass.data[DOMAIN][self.coordinator.entry.entry_id]
-        charge_point_id = (
-            self.coordinator.data.charge_point_id or self.coordinator.data.path_charge_point_id
-        )
-        if charge_point_id is None:
-            return
-        await runtime.hub.async_accept_charge_point(charge_point_id)

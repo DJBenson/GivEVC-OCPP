@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -23,7 +21,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 HUB_STORAGE_VERSION = 1
-SIGNAL_PENDING_CHARGE_POINT = f"{DOMAIN}_pending_charge_point"
 SIGNAL_ACCEPTED_CHARGE_POINT = f"{DOMAIN}_accepted_charge_point"
 
 
@@ -47,9 +44,7 @@ class GivEnergyChargePointHub:
             hass, HUB_STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_hub"
         )
         self._accepted_charge_points: set[str] = set()
-        self._pending_charge_points: set[str] = set()
         self._secondary_coordinators: dict[str, GivEnergyEvcCoordinator] = {}
-        self._signalled_pending: set[str] = set()
         self._signalled_accepted: set[str] = set()
 
     async def async_restore_persisted_state(self) -> None:
@@ -107,12 +102,6 @@ class GivEnergyChargePointHub:
         """Return accepted charge point IDs."""
 
         return set(self._accepted_charge_points)
-
-    @property
-    def pending_charge_points(self) -> set[str]:
-        """Return pending charge point IDs."""
-
-        return set(self._pending_charge_points)
 
     def attach_server(self, server: GivEnergyOcppServer) -> None:
         """Attach the shared websocket server."""
@@ -177,7 +166,7 @@ class GivEnergyChargePointHub:
     async def async_note_discovered_charge_point(
         self, coordinator: GivEnergyEvcCoordinator
     ) -> None:
-        """Record a discovered but not yet accepted charger."""
+        """Record and auto-accept a discovered charger."""
 
         charge_point_id = self._coordinator_charge_point_id(coordinator)
         if not charge_point_id:
@@ -186,30 +175,14 @@ class GivEnergyChargePointHub:
         if charge_point_id in self._accepted_charge_points:
             return
 
-        self._pending_charge_points.add(charge_point_id)
-        if coordinator is not self.primary_coordinator and charge_point_id not in self._signalled_pending:
-            self._signalled_pending.add(charge_point_id)
-            async_dispatcher_send(
-                self.hass, SIGNAL_PENDING_CHARGE_POINT, self.entry.entry_id, coordinator
-            )
-        self._schedule_save()
-
-    async def async_accept_charge_point(self, charge_point_id: str) -> None:
-        """Accept a discovered charger and onboard its full entity set."""
-
         normalized_id = self._normalize_id(charge_point_id)
         if normalized_id is None:
             return
-
-        coordinator = self.get_charge_point_coordinator(normalized_id)
-        if coordinator is None:
-            raise ValueError(f"Unknown charge point ID: {charge_point_id}")
 
         coordinator.data.adopted = True
         if coordinator is self.primary_coordinator and coordinator.data.charge_point_id is None:
             coordinator.data.charge_point_id = normalized_id
 
-        self._pending_charge_points.discard(normalized_id)
         self._accepted_charge_points.add(normalized_id)
         self._schedule_save()
         coordinator.publish_state()
@@ -224,7 +197,7 @@ class GivEnergyChargePointHub:
             )
 
     async def async_remove_charge_point(self, charge_point_id: str) -> bool:
-        """Remove a secondary or pending charger from the hub."""
+        """Remove a secondary charger from the hub."""
 
         normalized_id = self._normalize_id(charge_point_id)
         if normalized_id is None:
@@ -235,8 +208,6 @@ class GivEnergyChargePointHub:
 
         coordinator = self._secondary_coordinators.pop(normalized_id, None)
         self._accepted_charge_points.discard(normalized_id)
-        self._pending_charge_points.discard(normalized_id)
-        self._signalled_pending.discard(normalized_id)
         self._signalled_accepted.discard(normalized_id)
         self._schedule_save()
 
@@ -270,15 +241,6 @@ class GivEnergyChargePointHub:
             if charge_point_id in self._accepted_charge_points
         ]
 
-    def pending_secondary_coordinators(self) -> list[GivEnergyEvcCoordinator]:
-        """Return pending non-primary charger coordinators."""
-
-        return [
-            coordinator
-            for charge_point_id, coordinator in sorted(self._secondary_coordinators.items())
-            if charge_point_id in self._pending_charge_points
-        ]
-
     def resolve_service_target(
         self, charge_point_id: str | None
     ) -> GivEnergyEvcCoordinator:
@@ -286,10 +248,8 @@ class GivEnergyChargePointHub:
 
         if charge_point_id:
             coordinator = self.get_charge_point_coordinator(charge_point_id)
-            if coordinator is None or not coordinator.data.adopted:
-                raise HomeAssistantError(
-                    f"Charge point {charge_point_id} is not accepted"
-                )
+            if coordinator is None:
+                raise HomeAssistantError(f"Charge point {charge_point_id} is not known")
             return coordinator
         return self.primary_coordinator
 

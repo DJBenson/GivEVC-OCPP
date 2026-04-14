@@ -142,12 +142,11 @@ Typical setup is:
 
 1. Add the integration.
 2. Leave the listen port at `7655`.
-3. Leave `Expected charge point ID` blank unless you know you need it.
-4. Let the charger connect in.
+3. Let the charger connect in.
 
 Existing single-charger installs keep the current legacy behavior and entity IDs.
 
-Additional chargers are discovered under the same listener and can then be accepted explicitly from Home Assistant.
+Additional chargers are discovered automatically under the same listener and are added to the hub as soon as they connect.
 
 ## What you get
 
