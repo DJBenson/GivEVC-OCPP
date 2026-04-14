@@ -581,8 +581,11 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if self._legacy_entity_ids:
             identifiers.add((DOMAIN, f"entry:{self.entry.entry_id}"))
 
-        if self.data.charge_point_id:
-            identifiers.add((DOMAIN, f"charge_point_id:{self.data.charge_point_id}"))
+        effective_charge_point_id = (
+            self.data.charge_point_id or self.data.path_charge_point_id
+        )
+        if effective_charge_point_id:
+            identifiers.add((DOMAIN, f"charge_point_id:{effective_charge_point_id}"))
         if self.data.charge_point_serial_number:
             identifiers.add(
                 (
@@ -603,9 +606,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             )
             if part
         ]
-        charge_point_id = self.data.charge_point_id or self.data.path_charge_point_id
-        if charge_point_id:
-            name_parts.append(charge_point_id)
+        if effective_charge_point_id:
+            name_parts.append(effective_charge_point_id)
 
         return DeviceInfo(
             identifiers=identifiers,
@@ -616,7 +618,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             serial_number=(
                 self.data.charge_point_serial_number
                 or self.data.charge_box_serial_number
-                or charge_point_id
+                or effective_charge_point_id
             ),
         )
 
