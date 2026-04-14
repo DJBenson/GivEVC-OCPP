@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
@@ -222,6 +223,30 @@ class GivEnergyChargePointHub:
                 self.hass, SIGNAL_ACCEPTED_CHARGE_POINT, self.entry.entry_id, coordinator
             )
 
+    async def async_remove_charge_point(self, charge_point_id: str) -> bool:
+        """Remove a secondary or pending charger from the hub."""
+
+        normalized_id = self._normalize_id(charge_point_id)
+        if normalized_id is None:
+            return False
+
+        if normalized_id == self.primary_charge_point_id:
+            return False
+
+        coordinator = self._secondary_coordinators.pop(normalized_id, None)
+        self._accepted_charge_points.discard(normalized_id)
+        self._pending_charge_points.discard(normalized_id)
+        self._signalled_pending.discard(normalized_id)
+        self._signalled_accepted.discard(normalized_id)
+        self._schedule_save()
+
+        if coordinator is not None:
+            if self.server is not None:
+                await self.server.async_disconnect_charge_point(normalized_id)
+            await coordinator.async_stop()
+
+        return True
+
     def get_charge_point_coordinator(
         self, charge_point_id: str | None
     ) -> GivEnergyEvcCoordinator | None:
@@ -283,6 +308,17 @@ class GivEnergyChargePointHub:
             lambda: {"accepted_charge_points": sorted(self._accepted_charge_points)},
             1.0,
         )
+
+    @staticmethod
+    def charge_point_id_from_device(device_entry: dr.DeviceEntry) -> str | None:
+        """Extract the charge point ID from a device entry."""
+
+        for domain, value in device_entry.identifiers:
+            if domain != DOMAIN:
+                continue
+            if value.startswith("charge_point_id:"):
+                return value.split(":", 1)[1]
+        return None
 
     @staticmethod
     def _normalize_id(charge_point_id: str | None) -> str | None:

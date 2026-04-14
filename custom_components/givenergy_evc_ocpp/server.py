@@ -62,6 +62,13 @@ class GivEnergyOcppServer:
             self._runner = None
             self._site = None
 
+    async def async_disconnect_charge_point(self, charge_point_id: str) -> None:
+        """Close a specific connected charger session if present."""
+
+        session = self._sessions.pop(charge_point_id, None)
+        if session is not None:
+            await session.async_close("Charge point removed from Home Assistant")
+
     async def async_send_call(
         self, charge_point_id: str | None, action: str, payload: dict, timeout: int
     ) -> dict[str, object]:

@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.device_registry import DeviceEntry
 
 from .const import (
     ATTR_CHARGE_POINT_ID,
@@ -129,6 +130,18 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload the config entry."""
 
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Allow removing secondary chargers from the shared hub entry."""
+
+    runtime: GivEnergyRuntimeData = entry.runtime_data
+    charge_point_id = runtime.hub.charge_point_id_from_device(device_entry)
+    if charge_point_id is None:
+        return False
+    return await runtime.hub.async_remove_charge_point(charge_point_id)
 
 
 async def _async_register_services(hass: HomeAssistant) -> None:
