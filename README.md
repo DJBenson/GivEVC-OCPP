@@ -2,15 +2,15 @@
 
 <img src="https://raw.githubusercontent.com/DJBenson/GivEVC-OCPP/refs/heads/main/brand/logo.png" />
 
+Home Assistant custom integration for the GivEnergy EVC.
+
+It runs a local OCPP server inside Home Assistant so your charger can connect directly to Home Assistant over your local network.
+
 ## 💖 Support this project
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-pink?logo=github)](https://github.com/sponsors/DJBenson)
 [![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5f5f?logo=ko-fi)](https://ko-fi.com/djbenson)
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://paypal.me/jonathanthomson81)
-
-Home Assistant custom integration for the GivEnergy EVC.
-
-It runs a local OCPP server inside Home Assistant so your charger can connect directly to Home Assistant over your local network.
 
 ## Screenshots
 
@@ -25,13 +25,13 @@ It runs a local OCPP server inside Home Assistant so your charger can connect di
   <tbody>
     <tr>
       <td valign="top">
-        <img width="290" height="853" alt="image" src="https://github.com/user-attachments/assets/0eb9fe80-c406-4f8b-9016-c6631924286e" />
+        <img width="323" height="850" alt="image" src="https://github.com/user-attachments/assets/f3eb35b8-0f28-4ba5-b7de-a704e82b8ae1" />
       </td>
       <td valign="top">
-        <img width="284" height="878" alt="image" src="https://github.com/user-attachments/assets/e3704987-7249-4f0d-9a8e-5e85234dc0a5" />
+        <img width="320" height="670" alt="image" src="https://github.com/user-attachments/assets/3daae2fd-ee3d-41db-b528-e72e3196bbff" />
       </td>
       <td valign="top">
-        <img width="287" height="675" alt="image" src="https://github.com/user-attachments/assets/a14e03b4-d294-4c21-95f6-811177f35278" />
+        <img width="318" height="512" alt="image" src="https://github.com/user-attachments/assets/0e0eecef-d848-480a-bda1-19a11c596d5f" />
       </td>
     </tr>
   </tbody>
@@ -50,10 +50,6 @@ However...
 2. If you would prefer to use GivTCP but it doesn't work - *THIS IS FOR YOU!*
 3. If you just love tinkering (for now, this change can be undone) - *THIS MAY BE FOR YOU!*
 
-...one final point...
-
-You can use my integration to toggle the local modbus setting which means you can have the best of both worlds; be disconnected from the GivEnergy cloud and also use GivTCP.
-
 ## Features
 
 - Local OCPP 1.6J listener built into Home Assistant
@@ -64,6 +60,35 @@ You can use my integration to toggle the local modbus setting which means you ca
 - Scheduled charging - set time windows with a current limit, for specific days or every day
 - RFID tag management - add and remove authorised RFID tags on the charger's local list
 - Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
+
+## Feature Parity
+
+Use this section to track parity between the GivEnergy portal/API and the local integration.
+
+| Status | Feature | Notes |
+| --- | --- | --- |
+| ✔ | Start/Stop Charge | Fully supported. |
+| ✔ | Energy Sensors | Total/Last Session/Today. |
+| ✔ | Mode Selection | Solar (SuperEco), Hybrid (Eco), Grid (Boost), Inverter Control (LocalModBus) - the latter may be removed. |
+| ✔ | Scheduling | The charger supports one schedule, managed using service calls - status entity provided. |
+| ✔ | RFID tag management | Managed using service calls - status entity provided. |
+| ✔ | Unlock Charge Port | Fully Supported |
+| ✔ | Max Charge Power | Fully Supported |
+| ✔ | Restart Charger | Fully Supported - supports 'soft' and 'hard' resets (factory reset is different - see below). |
+| ✔ | Set LED State | Fully Supported |
+| ✔ | Set DNO Fuse Size | Fully Supported. Note: if GivEnergy portal currently has this set to 'disabled' it will show a zero value in Home Assistant. I suggest re-setting this to a valid value (```40-100```) when you migrate. |
+| ✔ | Factory Reset EV Charger | Fully Supported (Warning: this will remove the custom OCPP address and revert to the GivEnergy cloud). |
+| ✔ | Enable Local Control | Fully Supported. Requires reboot on toggle. |
+| ✔ | Read CP Voltage & Duty Cycle | Fully Supported. Response written to two sensors. |
+| ✔ | Change Suspended State Wait Timeout | Fully Supported. |
+| ◐ | Plug and Go | This is a server feature but is implemented in this integration. |
+| ✖ | Max Charge Energy Per Session | This is a server feature. Doesn't make sense to implement. Use automations instead. |
+| ✖ | Charger Configuration | This is a server feature. Will not be implemented |
+| ✖ | Change CP Voltage Range | This is a server feature. Will not be implemented |
+
+- Logging is controlled using the options in the config flow and diagnostics can be downloaded which contain verbose OCPP transaction logs.
+- Power and Energy are obviously core features of Home Assistant sensors so you can build nice graphs using those
+- Errors - handled by the logging system - also the ```Last message response``` sensor.
 
 ## Installation
 
@@ -136,8 +161,6 @@ Examples:
 - `ws://192.168.1.50:7655`
 - `ws://192.168.1.50:7655/<charge_point_id>`
 
-NOTE: GivEnergy EVC's will automatically append their charge point ID (serial number) to the websocket URL.
-
 If the charger connects without a path, that is fine. The integration can still identify and adopt it from the boot details it sends after connecting.
 
 ## First setup
@@ -148,10 +171,11 @@ Typical setup is:
 
 1. Add the integration.
 2. Leave the listen port at `7655`.
-3. Leave `Expected charge point ID` blank unless you know you need it.
-4. Let the charger connect in.
+3. Let the charger connect in.
 
-The first charger that connects will normally be adopted automatically.
+Existing single-charger installs keep the current legacy behavior and entity IDs.
+
+Additional chargers are discovered automatically under the same listener and are added to the hub as soon as they connect.
 
 ## What you get
 
@@ -379,4 +403,6 @@ If you need deeper troubleshooting, enable enhanced OCPP diagnostics in the inte
 
 - This integration is built specifically for the GivEnergy EVC. It is not trying to be a generic OCPP integration.
 - The charger can connect with or without a charge point ID in the websocket path.
-- The integration assumes a single charger for now.
+- One listener can now handle more than one GivEnergy charger.
+- The original primary charger keeps the legacy entity IDs for compatibility.
+- Additional chargers are onboarded separately after discovery and use charger-scoped entity IDs.
