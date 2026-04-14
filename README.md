@@ -10,6 +10,7 @@ It runs a local OCPP server inside Home Assistant so your charger can connect di
 
 [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-GitHub-pink?logo=github)](https://github.com/sponsors/DJBenson)
 [![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5f5f?logo=ko-fi)](https://ko-fi.com/djbenson)
+[![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://paypal.me/jonathanthomson81)
 
 ## Screenshots
 
