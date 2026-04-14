@@ -145,7 +145,9 @@ Typical setup is:
 3. Leave `Expected charge point ID` blank unless you know you need it.
 4. Let the charger connect in.
 
-The first charger that connects will normally be adopted automatically.
+Existing single-charger installs keep the current legacy behavior and entity IDs.
+
+Additional chargers are discovered under the same listener and can then be accepted explicitly from Home Assistant.
 
 ## What you get
 
@@ -373,4 +375,6 @@ If you need deeper troubleshooting, enable enhanced OCPP diagnostics in the inte
 
 - This integration is built specifically for the GivEnergy EVC. It is not trying to be a generic OCPP integration.
 - The charger can connect with or without a charge point ID in the websocket path.
-- The integration assumes a single charger for now.
+- One listener can now handle more than one GivEnergy charger.
+- The original primary charger keeps the legacy entity IDs for compatibility.
+- Additional chargers are onboarded separately after discovery and use charger-scoped entity IDs.

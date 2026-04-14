@@ -14,6 +14,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
+    ATTR_CHARGE_POINT_ID,
     ATTR_ENTRY_ID,
     DOMAIN,
     PLATFORMS,
@@ -35,6 +36,7 @@ from .const import (
 )
 from .coordinator import GivEnergyEvcCoordinator
 from .firmware_transfer_server import GivEnergyFirmwareTransferServer
+from .hub import GivEnergyChargePointHub
 from .server import GivEnergyOcppServer
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +48,7 @@ RELOAD_STATE_KEY = "reload_state"
 class GivEnergyRuntimeData:
     """Runtime data stored against the config entry."""
 
+    hub: GivEnergyChargePointHub
     coordinator: GivEnergyEvcCoordinator
     server: GivEnergyOcppServer
     firmware_server: GivEnergyFirmwareTransferServer
@@ -62,16 +65,18 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up the config entry."""
 
-    coordinator = GivEnergyEvcCoordinator(hass, entry)
+    coordinator = GivEnergyEvcCoordinator(hass, entry, legacy_entity_ids=True)
     await coordinator.async_restore_persisted_state()
     reload_state = hass.data[DOMAIN].get(RELOAD_STATE_KEY, {}).pop(entry.entry_id, None)
     coordinator.restore_reload_state(reload_state)
-    server = GivEnergyOcppServer(hass, coordinator)
+    hub = GivEnergyChargePointHub(hass, entry, coordinator)
+    await hub.async_restore_persisted_state()
+    server = GivEnergyOcppServer(hass, hub)
     firmware_server = GivEnergyFirmwareTransferServer(
         hass, coordinator.firmware_directory
     )
-    coordinator.set_server(server)
-    coordinator.set_firmware_server(firmware_server)
+    hub.attach_server(server)
+    hub.attach_firmware_server(firmware_server)
 
     try:
         await server.async_start()
@@ -81,8 +86,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ) from err
 
     await coordinator.async_start()
+    await hub.async_start()
 
     runtime_data = GivEnergyRuntimeData(
+        hub=hub,
         coordinator=coordinator,
         server=server,
         firmware_server=firmware_server,
@@ -108,6 +115,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await runtime.server.async_stop()
     await runtime.firmware_server.async_stop()
+    await runtime.hub.async_stop()
     await runtime.coordinator.async_stop()
 
     hass.data[DOMAIN].pop(entry.entry_id, None)
@@ -131,37 +139,43 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_handle_reset(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_reset(call.data["type"])
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_reset(call.data["type"])
 
     async def async_handle_trigger(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_trigger_message(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_trigger_message(
             call.data["requested_message"],
             connector_id=call.data.get("connector_id"),
         )
 
     async def async_handle_unlock_connector(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_unlock_connector(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_unlock_connector(
             connector_id=call.data.get("connector_id", 1)
         )
 
     async def async_handle_get_configuration(call: ServiceCall) -> dict[str, Any]:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        return await runtime.coordinator.async_refresh_configuration(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        return await coordinator.async_refresh_configuration(
             call.data.get("keys")
         )
 
     async def async_handle_change_configuration(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_change_configuration(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_change_configuration(
             call.data["key"],
             call.data["value"],
         )
 
     async def async_handle_remote_start(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_remote_start_transaction(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_remote_start_transaction(
             id_tag=call.data.get("id_tag"),
             connector_id=call.data.get("connector_id"),
             charging_profile=call.data.get("charging_profile"),
@@ -169,20 +183,23 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_handle_remote_stop(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_remote_stop_transaction(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_remote_stop_transaction(
             transaction_id=call.data.get("transaction_id"),
         )
 
     async def async_handle_set_profile(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_set_charging_profile(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_set_charging_profile(
             connector_id=call.data["connector_id"],
             charging_profile=call.data["charging_profile"],
         )
 
     async def async_handle_clear_profile(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_clear_charging_profile(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_clear_charging_profile(
             connector_id=call.data.get("connector_id"),
             charging_profile_id=call.data.get("charging_profile_id"),
             stack_level=call.data.get("stack_level"),
@@ -191,11 +208,13 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_handle_change_availability(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_change_availability(call.data["operative"])
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_change_availability(call.data["operative"])
 
     async def async_handle_update_firmware(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_update_firmware(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_update_firmware(
             location=call.data["location"],
             retrieve_date=call.data["retrieve_date"],
             retries=call.data.get("retries"),
@@ -204,7 +223,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_handle_set_charging_schedule(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_set_charging_schedule(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_set_charging_schedule(
             days=call.data.get("days", []),
             start=call.data["start"],
             end=call.data["end"],
@@ -213,18 +233,21 @@ async def _async_register_services(hass: HomeAssistant) -> None:
 
     async def async_handle_clear_charging_schedule(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_clear_charging_schedule()
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_clear_charging_schedule()
 
     async def async_handle_add_rfid_tag(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_add_rfid_tag(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_add_rfid_tag(
             id_tag=call.data["id_tag"],
             expiry_date=call.data.get("expiry_date"),
         )
 
     async def async_handle_remove_rfid_tag(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_remove_rfid_tag(
+        coordinator = runtime.hub.resolve_service_target(call.data.get("charge_point_id"))
+        await coordinator.async_remove_rfid_tag(
             id_tag=call.data["id_tag"],
         )
 
@@ -235,6 +258,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("type"): vol.In({"Soft", "Hard"}),
             }
         ),
@@ -246,6 +270,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("requested_message"): cv.string,
                 vol.Optional("connector_id"): vol.Coerce(int),
             }
@@ -258,6 +283,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("connector_id", default=1): vol.Coerce(int),
             }
         ),
@@ -269,6 +295,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("keys"): [cv.string],
             }
         ),
@@ -281,6 +308,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("key"): cv.string,
                 vol.Required("value"): cv.string,
             }
@@ -293,6 +321,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("id_tag"): cv.string,
                 vol.Optional("connector_id"): vol.Coerce(int),
                 vol.Optional("charging_profile"): dict,
@@ -306,6 +335,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("transaction_id"): vol.Coerce(int),
             }
         ),
@@ -317,6 +347,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("connector_id"): vol.Coerce(int),
                 vol.Required("charging_profile"): dict,
             }
@@ -329,6 +360,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("connector_id"): vol.Coerce(int),
                 vol.Optional("charging_profile_id"): vol.Coerce(int),
                 vol.Optional("stack_level"): vol.Coerce(int),
@@ -343,6 +375,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("operative"): bool,
             }
         ),
@@ -354,6 +387,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("location"): cv.string,
                 vol.Required("retrieve_date"): cv.string,
                 vol.Optional("retries"): vol.Coerce(int),
@@ -371,6 +405,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Optional("days", default=[]): vol.All(
                     [vol.In(_VALID_DAYS)], vol.Unique()
                 ),
@@ -389,6 +424,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
             }
         ),
     )
@@ -399,6 +435,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("id_tag"): cv.string,
                 vol.Optional("expiry_date"): cv.string,
             }
@@ -411,6 +448,7 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ENTRY_ID): cv.string,
+                vol.Optional(ATTR_CHARGE_POINT_ID): cv.string,
                 vol.Required("id_tag"): cv.string,
             }
         ),

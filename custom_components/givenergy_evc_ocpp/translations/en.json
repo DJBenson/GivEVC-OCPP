@@ -146,6 +146,9 @@
       "factory_reset": {
         "name": "Factory reset"
       },
+      "accept_discovered_charger": {
+        "name": "Accept discovered charger"
+      },
       "read_cp_voltage_and_duty_cycle": {
         "name": "Read CP voltage & duty cycle"
       },

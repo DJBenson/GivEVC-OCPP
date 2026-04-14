@@ -60,6 +60,7 @@ SERVICE_ADD_RFID_TAG = "add_rfid_tag"
 SERVICE_REMOVE_RFID_TAG = "remove_rfid_tag"
 
 ATTR_ENTRY_ID = "entry_id"
+ATTR_CHARGE_POINT_ID = "charge_point_id"
 
 WEBSOCKET_SUBPROTOCOL = "ocpp1.6"
 
