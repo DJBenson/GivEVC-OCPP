@@ -172,20 +172,20 @@ class GivEnergyChargePointHub:
         if not charge_point_id:
             return
 
-        if charge_point_id in self._accepted_charge_points:
-            return
-
         normalized_id = self._normalize_id(charge_point_id)
         if normalized_id is None:
             return
 
-        coordinator.data.adopted = True
-        if coordinator is self.primary_coordinator and coordinator.data.charge_point_id is None:
-            coordinator.data.charge_point_id = normalized_id
+        already_accepted = normalized_id in self._accepted_charge_points
 
-        self._accepted_charge_points.add(normalized_id)
-        self._schedule_save()
-        coordinator.publish_state()
+        if not already_accepted:
+            coordinator.data.adopted = True
+            if coordinator is self.primary_coordinator and coordinator.data.charge_point_id is None:
+                coordinator.data.charge_point_id = normalized_id
+
+            self._accepted_charge_points.add(normalized_id)
+            self._schedule_save()
+            coordinator.publish_state()
 
         if coordinator is self.primary_coordinator:
             return
