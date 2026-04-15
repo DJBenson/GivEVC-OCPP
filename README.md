@@ -61,6 +61,35 @@ However...
 - RFID tag management - add and remove authorised RFID tags on the charger's local list
 - Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
 
+## Feature Parity
+
+Use this section to track parity between the GivEnergy portal/API and the local integration.
+
+| Status | Feature | Notes |
+| --- | --- | --- |
+| ✔ | Start/Stop Charge | Fully supported. |
+| ✔ | Energy Sensors | Total/Last Session/Today. |
+| ✔ | Mode Selection | Solar (SuperEco), Hybrid (Eco), Grid (Boost), Inverter Control (LocalModBus) - the latter may be removed. |
+| ✔ | Scheduling | The charger supports one schedule, managed using service calls - status entity provided. |
+| ✔ | RFID tag management | Managed using service calls - status entity provided. |
+| ✔ | Unlock Charge Port | Fully Supported |
+| ✔ | Max Charge Power | Fully Supported |
+| ✔ | Restart Charger | Fully Supported - supports 'soft' and 'hard' resets (factory reset is different - see below). |
+| ✔ | Set LED State | Fully Supported |
+| ✔ | Set DNO Fuse Size | Fully Supported. Note: if GivEnergy portal currently has this set to 'disabled' it will show a zero value in Home Assistant. I suggest re-setting this to a valid value (```40-100```) when you migrate. |
+| ✔ | Factory Reset EV Charger | Fully Supported (Warning: this will remove the custom OCPP address and revert to the GivEnergy cloud). |
+| ✔ | Enable Local Control | Fully Supported. Requires reboot on toggle. |
+| ✔ | Read CP Voltage & Duty Cycle | Fully Supported. Response written to two sensors. |
+| ✔ | Change Suspended State Wait Timeout | Fully Supported. |
+| ◐ | Plug and Go | This is a server feature but is implemented in this integration. |
+| ✖ | Max Charge Energy Per Session | This is a server feature. Doesn't make sense to implement. Use automations instead. |
+| ✖ | Charger Configuration | This is a server feature. Will not be implemented |
+| ✖ | Change CP Voltage Range | This is a server feature. Will not be implemented |
+
+- Logging is controlled using the options in the config flow and diagnostics can be downloaded which contain verbose OCPP transaction logs.
+- Power and Energy are obviously core features of Home Assistant sensors so you can build nice graphs using those
+- Errors - handled by the logging system - also the ```Last message response``` sensor.
+
 ## Installation
 
 ### HACS
