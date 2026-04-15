@@ -1,9 +1,6 @@
 {
   "name": "GivEnergy EVC OCPP",
   "content_in_root": false,
-  "domains": [
-    "givenergy_evc_ocpp"
-  ],
   "homeassistant": "2024.8.0",
   "render_readme": true
 }
