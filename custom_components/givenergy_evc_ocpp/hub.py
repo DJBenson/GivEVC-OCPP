@@ -276,6 +276,10 @@ class GivEnergyChargePointHub:
         for domain, value in device_entry.identifiers:
             if domain != DOMAIN:
                 continue
+            # New format: "<entry_id>:charge_point_id:<id>"
+            if ":charge_point_id:" in value:
+                return value.split(":charge_point_id:", 1)[1]
+            # Legacy format: "charge_point_id:<id>"
             if value.startswith("charge_point_id:"):
                 return value.split(":", 1)[1]
         return None
