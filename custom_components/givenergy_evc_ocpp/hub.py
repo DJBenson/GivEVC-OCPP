@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -17,8 +16,6 @@ if TYPE_CHECKING:
     from .coordinator import GivEnergyEvcCoordinator
     from .firmware_transfer_server import GivEnergyFirmwareTransferServer
     from .server import GivEnergyOcppServer
-
-_LOGGER = logging.getLogger(__name__)
 
 HUB_STORAGE_VERSION = 1
 SIGNAL_ACCEPTED_CHARGE_POINT = f"{DOMAIN}_accepted_charge_point"
@@ -192,9 +189,23 @@ class GivEnergyChargePointHub:
 
         if normalized_id not in self._signalled_accepted:
             self._signalled_accepted.add(normalized_id)
-            async_dispatcher_send(
-                self.hass, SIGNAL_ACCEPTED_CHARGE_POINT, self.entry.entry_id, coordinator
+            # Schedule the signal as a task so it runs with a proper task context
+            # on the HA event loop. Firing inline via async_dispatcher_send causes
+            # async_add_entities (called from the signal listener) to fail with
+            # "loop is not the running loop" under Python 3.14 due to eager_start.
+            self.hass.async_create_task(
+                self._async_dispatch_accepted(normalized_id, coordinator),
+                f"givenergy_evc_ocpp_signal_{normalized_id}",
             )
+
+    async def _async_dispatch_accepted(
+        self, normalized_id: str, coordinator: GivEnergyEvcCoordinator
+    ) -> None:
+        """Dispatch the accepted charge point signal as a proper HA task."""
+
+        async_dispatcher_send(
+            self.hass, SIGNAL_ACCEPTED_CHARGE_POINT, self.entry.entry_id, coordinator
+        )
 
     async def async_remove_charge_point(self, charge_point_id: str) -> bool:
         """Remove a secondary charger from the hub."""

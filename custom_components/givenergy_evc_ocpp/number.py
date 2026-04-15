@@ -36,13 +36,15 @@ async def async_setup_entry(
     for accepted in runtime.hub.accepted_secondary_coordinators():
         async_add_entities(_entities(accepted))
 
+    def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
+        if signal_entry_id == entry.entry_id:
+            hass.async_add_job(async_add_entities, _entities(target))
+
     entry.async_on_unload(
         async_dispatcher_connect(
             hass,
             SIGNAL_ACCEPTED_CHARGE_POINT,
-            lambda entry_id, target: (
-                entry_id == entry.entry_id and async_add_entities(_entities(target))
-            ),
+            _on_accepted,
         )
     )
 

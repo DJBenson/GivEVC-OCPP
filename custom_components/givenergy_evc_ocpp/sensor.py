@@ -387,17 +387,15 @@ async def async_setup_entry(
             GivEnergyEvcSensor(accepted, description) for description in SENSORS
         )
 
+    def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
+        if signal_entry_id == entry.entry_id:
+            hass.async_add_job(
+                async_add_entities,
+                [GivEnergyEvcSensor(target, description) for description in SENSORS],
+            )
+
     entry.async_on_unload(
-        async_dispatcher_connect(
-            hass,
-            SIGNAL_ACCEPTED_CHARGE_POINT,
-            lambda entry_id, target: (
-                entry_id == entry.entry_id
-                and async_add_entities(
-                    GivEnergyEvcSensor(target, description) for description in SENSORS
-                )
-            ),
-        )
+        async_dispatcher_connect(hass, SIGNAL_ACCEPTED_CHARGE_POINT, _on_accepted)
     )
 
 
