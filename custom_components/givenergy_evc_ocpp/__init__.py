@@ -79,13 +79,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub.attach_server(server)
     hub.attach_firmware_server(firmware_server)
 
-    try:
-        await server.async_start()
-    except OSError as err:
-        raise ConfigEntryNotReady(
-            f"Unable to listen on configured port {coordinator.listen_port}: {err}"
-        ) from err
-
     await coordinator.async_start()
     await hub.async_start()
 
@@ -100,6 +93,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await _async_register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Start the server only after all platform listeners are registered so that
+    # any charger connecting immediately after startup fires the
+    # SIGNAL_ACCEPTED_CHARGE_POINT into listeners that are already in place.
+    try:
+        await server.async_start()
+    except OSError as err:
+        raise ConfigEntryNotReady(
+            f"Unable to listen on configured port {coordinator.listen_port}: {err}"
+        ) from err
+
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
