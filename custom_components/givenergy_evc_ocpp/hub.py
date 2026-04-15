@@ -46,6 +46,7 @@ class GivEnergyChargePointHub:
         self._accepted_charge_points: set[str] = set()
         self._secondary_coordinators: dict[str, GivEnergyEvcCoordinator] = {}
         self._signalled_accepted: set[str] = set()
+        self._primary_claimed: bool = False
 
     async def async_restore_persisted_state(self) -> None:
         """Restore accepted charger IDs from storage."""
@@ -62,6 +63,7 @@ class GivEnergyChargePointHub:
         if primary_id:
             self._accepted_charge_points.add(primary_id)
             self.primary_coordinator.data.adopted = True
+            self._primary_claimed = True
 
     async def async_start(self) -> None:
         """Create runtime coordinators for any accepted secondary chargers."""
@@ -133,12 +135,10 @@ class GivEnergyChargePointHub:
         if normalized_id and normalized_id in self._secondary_coordinators:
             return self._secondary_coordinators[normalized_id]
 
-        if (
-            normalized_id
-            and primary_id is None
-            and self.primary_coordinator.data.path_charge_point_id in (None, normalized_id)
-            and not self._secondary_coordinators
-        ):
+        if normalized_id and not self._primary_claimed:
+            # First ever connection — claim the primary coordinator atomically
+            # so a second simultaneous connection doesn't also take it.
+            self._primary_claimed = True
             return self.primary_coordinator
 
         if normalized_id:
