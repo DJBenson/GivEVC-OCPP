@@ -552,24 +552,28 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Return Home Assistant device metadata."""
 
         identifiers: set[tuple[str, str]] = set()
+        entry_id = self.entry.entry_id
+
+        # All identifiers are scoped to the current config entry so they cannot
+        # accidentally match a stale device from a previous installation.
         if self._legacy_entity_ids:
-            identifiers.add((DOMAIN, f"entry:{self.entry.entry_id}"))
+            identifiers.add((DOMAIN, f"entry:{entry_id}"))
 
         effective_charge_point_id = (
             self.data.charge_point_id or self.data.path_charge_point_id
         )
         if effective_charge_point_id:
-            identifiers.add((DOMAIN, f"charge_point_id:{effective_charge_point_id}"))
+            identifiers.add((DOMAIN, f"{entry_id}:charge_point_id:{effective_charge_point_id}"))
         if self.data.charge_point_serial_number:
             identifiers.add(
                 (
                     DOMAIN,
-                    f"charge_point_serial:{self.data.charge_point_serial_number}",
+                    f"{entry_id}:charge_point_serial:{self.data.charge_point_serial_number}",
                 )
             )
         if self.data.charge_box_serial_number:
             identifiers.add(
-                (DOMAIN, f"charge_box_serial:{self.data.charge_box_serial_number}")
+                (DOMAIN, f"{entry_id}:charge_box_serial:{self.data.charge_box_serial_number}")
             )
 
         name_parts = [
