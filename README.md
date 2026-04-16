@@ -45,6 +45,7 @@ Let's get this one out of the way early as it's been a recurring question - who 
 
 1. If you currently use GivTCP and it works for you then *this isn't for you* - stick with GivTCP
 2. If you're happy with the "Plug and Go" workaround (providing it doesn't die if/when GivEnergy's servers are taken down) then *this isn't for you*
+3. If you don't have your EVC hot-spot SSID and password (see warning above) *this isn't for you*
 
 However...
 
@@ -62,6 +63,7 @@ However...
 - Scheduled charging - set time windows with a current limit, for specific days or every day
 - RFID tag management - add and remove authorised RFID tags on the charger's local list
 - Supports firmware updates (and downgrades) directly from the integration - refer to the "Firmware Management" section
+- Works over WiFi and LAN connections
 
 ## Feature Parity
 
@@ -145,10 +147,12 @@ These next steps are time limited - from the point the EVC restarts, it is in AP
 2. Connect to that network using the password from the QR code sticker
 3. Open a browser and enter ```http://192.168.4.1```
 4. The local admin panel should appear - log in with the password ```12345678```
-5. In the admin panel, enter your WiFi ```SSID``` and ```Password```
-6. Scroll down to the ```OCPP Server``` field and overwrite it with the address and port of your newly installed OCPP server - examples below
-7. You can also set the DHCP mode here - not necessary - leave alone unless required - it's better doing these things on the router
-8. Click on the ```Save``` and then the ```Restart``` buttons
+5. Once you are in the admin panel scroll up to the top.  
+6. If you are using LAN connect leave the WiFi and password fields blank.
+7. If you are using WiFi connect enter your WiFi ```SSID``` and ```Password```
+8. Scroll down to the ```OCPP Server``` field and overwrite it with the address and port of your newly installed OCPP server - examples below
+9. You can also set the DHCP mode here - not necessary - leave alone unless required - it's better doing these things on the router
+10. Click on the ```Save``` and then the ```Restart``` buttons
 
 Once the charger has rebooted and connected (solid blue light if no car is connected) then it should automatically connect to Home Assistant. Open the integration and you should see your entities gain values (look for your serial number to prove its working). It can take a couple of minutes. 
 
