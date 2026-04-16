@@ -145,7 +145,7 @@ These next steps are time limited - from the point the EVC restarts, it is in AP
 2. Connect to that network using the password from the QR code sticker
 3. Open a browser and enter ```http://192.168.4.1```
 4. The local admin panel should appear - log in with the password ```12345678```
-5. In the admin panel, enter your WiFi ```SSID``` and ```Password```
+5. In the admin panel, enter your WiFi ```SSID``` and ```Password``` (if your charger is connected by LAN, you can omit these settings)
 6. Scroll down to the ```OCPP Server``` field and overwrite it with the address and port of your newly installed OCPP server - examples below
 7. You can also set the DHCP mode here - not necessary - leave alone unless required - it's better doing these things on the router
 8. Click on the ```Save``` and then the ```Restart``` buttons
