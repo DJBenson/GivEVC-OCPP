@@ -24,6 +24,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_ADOPT_FIRST_CHARGER,
@@ -1390,15 +1391,26 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if all_days_selected:
             normalised = ALL_DAYS
 
-        # Parse start/end as (hour, minute) pairs
+        # Parse start/end as local HH:MM and convert to UTC seconds-from-midnight.
+        # OCPP requires all schedule offsets in UTC; user input is in HA local time.
         def _parse_hhmm(t: str) -> tuple[int, int]:
             parts = t.strip().split(":")
             return int(parts[0]), int(parts[1])
 
+        def _local_hhmm_to_utc_secs(h: int, m: int) -> int:
+            """Convert a local HH:MM time-of-day to UTC seconds-from-midnight."""
+            local_tz = dt_util.get_time_zone(self.hass.config.time_zone)
+            # Use a fixed reference date (today) — only the offset matters
+            local_dt = datetime.now(local_tz).replace(
+                hour=h, minute=m, second=0, microsecond=0
+            )
+            utc_dt = local_dt.astimezone(UTC)
+            return utc_dt.hour * 3600 + utc_dt.minute * 60
+
         sh, sm = _parse_hhmm(start)
         eh, em = _parse_hhmm(end)
-        start_secs = sh * 3600 + sm * 60
-        end_secs = eh * 3600 + em * 60
+        start_secs = _local_hhmm_to_utc_secs(sh, sm)
+        end_secs = _local_hhmm_to_utc_secs(eh, em)
         # Duration in seconds (handle overnight wrap)
         if end_secs <= start_secs:
             duration = 86400 - start_secs + end_secs

@@ -12,6 +12,8 @@ It runs a local OCPP server inside Home Assistant so your charger can connect di
 [![Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5f5f?logo=ko-fi)](https://ko-fi.com/djbenson)
 [![PayPal](https://img.shields.io/badge/Donate-PayPal-blue?logo=paypal)](https://paypal.me/jonathanthomson81)
 
+#### WARNING! DO NOT ATTEMPT THIS CHANGE UNLESS YOU HAVE YOUR QR CODE (ATTACHED TO THE SIDE OF THE EVC) TO RELY ON - IT CONTAINS THE WIFI PASSWORD FOR THE DEVICE - IF YOU HAVE LOST THIS / IT IS DAMAGED, YOU CANNOT RE-CONNECT TO THE DEVICE! FOR EVERYONE ELSE, I HIGHLY RECOMMEND YOU TAKE A PHOTO OF THAT CODE AS IT IS VERY SUSCEPTIBLE TO DEGREDATION IF THE CHARGER IS EXPOSED TO THE ELEMENTS.
+
 ## Screenshots
 
 <table>
@@ -140,7 +142,7 @@ There are two ways to achieve this depending upon whether your EVC is currently 
 These next steps are time limited - from the point the EVC restarts, it is in AP mode for a limited amount of time before it stops broadcasting. If this happens, just power cycle the EVC and continue.
 
 1. Scan for networks on your phone or laptop - look for an SSID starting ```EVSE-XXXXX```
-2. Connect to that network
+2. Connect to that network using the password from the QR code sticker
 3. Open a browser and enter ```http://192.168.4.1```
 4. The local admin panel should appear - log in with the password ```12345678```
 5. In the admin panel, enter your WiFi ```SSID``` and ```Password```
