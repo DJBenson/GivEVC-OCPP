@@ -140,7 +140,7 @@ There are two ways to achieve this depending upon whether your EVC is currently 
 These next steps are time limited - from the point the EVC restarts, it is in AP mode for a limited amount of time before it stops broadcasting. If this happens, just power cycle the EVC and continue.
 
 1. Scan for networks on your phone or laptop - look for an SSID starting ```EVSE-XXXXX```
-2. Connect to that network
+2. Connect to that network using the password from the QR code sticker
 3. Open a browser and enter ```http://192.168.4.1```
 4. The local admin panel should appear - log in with the password ```12345678```
 5. In the admin panel, enter your WiFi ```SSID``` and ```Password```
