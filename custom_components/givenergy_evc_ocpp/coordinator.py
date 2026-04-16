@@ -1221,6 +1221,9 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             if key == "SuspevTime":
                 self.data.suspended_state_timeout_seconds = self._coerce_int(value)
 
+        if status == "RebootRequired":
+            await self.async_reset("Soft")
+
         self._publish_state()
         return result
 
