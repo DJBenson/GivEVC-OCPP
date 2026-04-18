@@ -1371,6 +1371,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         start: str,
         end: str,
         limit_a: int,
+        show_ocpp_output: bool = False,
     ) -> dict[str, Any]:
         """Set a recurring charging schedule via SetChargingProfile.
 
@@ -1391,53 +1392,108 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if all_days_selected:
             normalised = ALL_DAYS
 
-        # Parse start/end as local HH:MM and convert to UTC seconds-from-midnight.
-        # OCPP requires all schedule offsets in UTC; user input is in HA local time.
         def _parse_hhmm(t: str) -> tuple[int, int]:
             parts = t.strip().split(":")
             return int(parts[0]), int(parts[1])
 
-        def _local_hhmm_to_utc_secs(h: int, m: int) -> int:
-            """Convert a local HH:MM time-of-day to UTC seconds-from-midnight."""
-            local_tz = dt_util.get_time_zone(self.hass.config.time_zone)
-            # Use a fixed reference date (today) — only the offset matters
-            local_dt = datetime.now(local_tz).replace(
-                hour=h, minute=m, second=0, microsecond=0
-            )
-            utc_dt = local_dt.astimezone(UTC)
-            return utc_dt.hour * 3600 + utc_dt.minute * 60
-
         sh, sm = _parse_hhmm(start)
         eh, em = _parse_hhmm(end)
-        start_secs = _local_hhmm_to_utc_secs(sh, sm)
-        end_secs = _local_hhmm_to_utc_secs(eh, em)
-        # Duration in seconds (handle overnight wrap)
-        if end_secs <= start_secs:
-            duration = 86400 - start_secs + end_secs
+
+        start_local_secs = sh * 3600 + sm * 60
+        end_local_secs = eh * 3600 + em * 60
+        if end_local_secs <= start_local_secs:
+            duration = 86400 - start_local_secs + end_local_secs
         else:
-            duration = end_secs - start_secs
+            duration = end_local_secs - start_local_secs
+
+        def _merge_intervals(
+            intervals: list[tuple[int, int]],
+        ) -> list[tuple[int, int]]:
+            """Merge active intervals on a linear OCPP recurrence timeline."""
+
+            merged: list[tuple[int, int]] = []
+            for start_offset, end_offset in sorted(intervals):
+                if start_offset == end_offset:
+                    continue
+                if not merged or start_offset > merged[-1][1]:
+                    merged.append((start_offset, end_offset))
+                    continue
+                previous_start, previous_end = merged[-1]
+                merged[-1] = (previous_start, max(previous_end, end_offset))
+            return merged
+
+        def _add_circular_interval(
+            intervals: list[tuple[int, int]],
+            start_offset: int,
+            duration_seconds: int,
+            cycle_seconds: int,
+        ) -> None:
+            """Add an active interval to a circular OCPP recurrence timeline."""
+
+            if duration_seconds >= cycle_seconds:
+                intervals.append((0, cycle_seconds))
+                return
+
+            start_offset %= cycle_seconds
+            end_offset = (start_offset + duration_seconds) % cycle_seconds
+            if start_offset < end_offset:
+                intervals.append((start_offset, end_offset))
+                return
+
+            intervals.append((0, end_offset))
+            intervals.append((start_offset, cycle_seconds))
+
+        def _periods_from_intervals(
+            intervals: list[tuple[int, int]],
+            cycle_seconds: int,
+        ) -> list[tuple[int, int]]:
+            """Convert active intervals into OCPP startPeriod state changes."""
+
+            merged = _merge_intervals(intervals)
+            if merged == [(0, cycle_seconds)]:
+                return [(0, limit_a)]
+
+            active_at_zero = any(start_offset == 0 for start_offset, _ in merged)
+            periods: list[tuple[int, int]] = [
+                (0, limit_a if active_at_zero else 0)
+            ]
+
+            def _append_period(start_period: int, limit: int) -> None:
+                if periods[-1][0] == start_period:
+                    periods[-1] = (start_period, limit)
+                elif periods[-1][1] != limit:
+                    periods.append((start_period, limit))
+
+            for start_offset, end_offset in merged:
+                if start_offset > 0:
+                    _append_period(start_offset, limit_a)
+                if end_offset < cycle_seconds:
+                    _append_period(end_offset, 0)
+
+            return periods
+
+        local_tz = dt_util.get_time_zone(self.hass.config.time_zone) or UTC
 
         if all_days_selected:
-            # Daily profile — offsets are seconds from midnight UTC (max 86400)
             recurrency = "Daily"
-            # Anchor startSchedule to today's midnight UTC
             now_utc = datetime.now(UTC)
             anchor = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
 
-            # Build period list: off at 0, on at start, off at end (with overnight wrap)
-            periods: list[tuple[int, int]] = []
-            if start_secs == 0:
-                periods.append((0, limit_a))
-                if end_secs > 0:
-                    periods.append((end_secs, 0))
-            else:
-                periods.append((0, 0))
-                periods.append((start_secs, limit_a))
-                if end_secs > start_secs:
-                    periods.append((end_secs, 0))
-                # overnight: wraps past midnight — end handled by next day's cycle
+            now_local = datetime.now(local_tz)
+            local_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+            local_start = local_day.replace(hour=sh, minute=sm)
+            local_end = local_day.replace(hour=eh, minute=em)
+            if local_end <= local_start:
+                local_end += timedelta(days=1)
+
+            utc_start = local_start.astimezone(UTC)
+            utc_end = local_end.astimezone(UTC)
+            start_offset = utc_start.hour * 3600 + utc_start.minute * 60
+            duration_seconds = int((utc_end - utc_start).total_seconds())
+            intervals: list[tuple[int, int]] = []
+            _add_circular_interval(intervals, start_offset, duration_seconds, 86400)
+            periods = _periods_from_intervals(intervals, 86400)
         else:
-            # Weekly profile — offsets from most recent Monday 00:00 UTC
             recurrency = "Weekly"
             now_utc = datetime.now(UTC)
             days_since_monday = now_utc.weekday()  # Monday=0
@@ -1445,24 +1501,28 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 hour=0, minute=0, second=0, microsecond=0
             )
 
-            # Expand each selected day into (on_offset, off_offset) pairs
-            on_off: list[tuple[int, int]] = []
-            for day_name in normalised:
-                base = day_index[day_name] * 86400
-                on_off.append((base + start_secs, base + end_secs if end_secs > start_secs else base + 86400 + end_secs))
+            now_local = datetime.now(local_tz)
+            local_week_start = (
+                now_local - timedelta(days=now_local.weekday())
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
 
-            # Sort and build flat period list with 0A gaps
-            on_off.sort()
-            periods = []
-            cursor = 0
-            for on, off in on_off:
-                if on > cursor:
-                    periods.append((cursor, 0))
-                periods.append((on, limit_a))
-                cursor = off
-            # Final off period if needed
-            if cursor < 604800:
-                periods.append((cursor, 0))
+            intervals = []
+            for day_name in normalised:
+                local_day = local_week_start + timedelta(days=day_index[day_name])
+                local_start = local_day.replace(hour=sh, minute=sm)
+                local_end = local_day.replace(hour=eh, minute=em)
+                if local_end <= local_start:
+                    local_end += timedelta(days=1)
+
+                utc_start = local_start.astimezone(UTC)
+                utc_end = local_end.astimezone(UTC)
+                start_offset = int((utc_start - anchor).total_seconds())
+                duration_seconds = int((utc_end - utc_start).total_seconds())
+                _add_circular_interval(
+                    intervals, start_offset, duration_seconds, 604800
+                )
+
+            periods = _periods_from_intervals(intervals, 604800)
 
         # Build OCPP chargingSchedulePeriod (startPeriod as string per portal convention)
         ocpp_periods = [
@@ -1483,10 +1543,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "chargingProfileId": 1,
         }
 
-        result = await self._async_send_command(
-            "SetChargingProfile",
-            {"connectorId": 0, "csChargingProfiles": profile},
-        )
+        command_payload = {"connectorId": 0, "csChargingProfiles": profile}
+        result = await self._async_send_command("SetChargingProfile", command_payload)
         await self.async_record_command_result("SetChargingProfile", result)
 
         # Store the schedule window for sensor visibility
@@ -1500,6 +1558,14 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             }
         ]
         self._publish_state()
+        if show_ocpp_output:
+            return {
+                "ocpp_output": {
+                    "action": "SetChargingProfile",
+                    "payload": command_payload,
+                },
+                "charger_response": result,
+            }
         return result
 
     async def async_clear_charging_schedule(self) -> dict[str, Any]:

@@ -330,12 +330,15 @@ The `set_charging_schedule` service takes the following parameters:
 | `end` | Yes | End of the charging window (local time) - can be earlier than start for overnight windows |
 | `limit_a` | Yes | Maximum charge current in amps (6-32A) |
 | `days` | No | Days the schedule applies to - leave empty for every day, or pick a subset |
+| `show_ocpp_output` | No | Return the OCPP `SetChargingProfile` payload sent to the charger, along with the charger response |
 
 The `days` field accepts any combination of `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`. Leave it empty (or select all seven) and the schedule runs every day. Select a subset and it becomes a weekly recurring schedule.
 
 All times are entered in local time - the integration handles the UTC conversion automatically.
 
 Only one schedule is active at a time. Setting a new one replaces the previous one. The `Charging schedules` sensor shows the current count and exposes each window as an attribute.
+
+Enable `Show OCPP output` when calling the action to display the generated OCPP payload on the action response screen.
 
 ### Clearing a schedule
 

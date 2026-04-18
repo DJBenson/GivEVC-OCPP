@@ -202,14 +202,21 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             retry_interval=call.data.get("retry_interval"),
         )
 
-    async def async_handle_set_charging_schedule(call: ServiceCall) -> None:
+    async def async_handle_set_charging_schedule(
+        call: ServiceCall,
+    ) -> dict[str, Any]:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
-        await runtime.coordinator.async_set_charging_schedule(
+        show_ocpp_output = call.data.get("show_ocpp_output", False)
+        result = await runtime.coordinator.async_set_charging_schedule(
             days=call.data.get("days", []),
             start=call.data["start"],
             end=call.data["end"],
             limit_a=call.data["limit_a"],
+            show_ocpp_output=show_ocpp_output,
         )
+        if show_ocpp_output:
+            return result
+        return {}
 
     async def async_handle_clear_charging_schedule(call: ServiceCall) -> None:
         runtime = _resolve_runtime(hass, call.data.get(ATTR_ENTRY_ID))
@@ -379,8 +386,10 @@ async def _async_register_services(hass: HomeAssistant) -> None:
                 vol.Required("limit_a"): vol.All(
                     vol.Coerce(int), vol.Range(min=6, max=32)
                 ),
+                vol.Optional("show_ocpp_output", default=False): bool,
             }
         ),
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,

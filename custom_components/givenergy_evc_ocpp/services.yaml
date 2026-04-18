@@ -61,6 +61,13 @@ set_charging_schedule:
           max: 32
           step: 1
           unit_of_measurement: A
+    show_ocpp_output:
+      name: Show OCPP output
+      description: Return the OCPP SetChargingProfile payload sent to the charger.
+      required: false
+      default: false
+      selector:
+        boolean:
 clear_charging_schedule:
   name: Clear charging schedule
   description: Remove the active charging schedule from the charger.
