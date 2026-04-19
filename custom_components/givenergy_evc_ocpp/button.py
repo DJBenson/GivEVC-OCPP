@@ -9,11 +9,13 @@ from homeassistant.components.button import ButtonEntity, ButtonEntityDescriptio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
 from .entity import GivEnergyEvcEntity
+from .hub import SIGNAL_ACCEPTED_CHARGE_POINT
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -87,11 +89,29 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
+    hub = runtime.hub
+
+    def _accepted_entities(target: GivEnergyEvcCoordinator) -> list[ButtonEntity]:
+        return [
+            *(GivEnergyEvcButton(target, description) for description in BUTTONS),
+        ]
+
     async_add_entities(
         [
-            *(GivEnergyEvcButton(coordinator, description) for description in BUTTONS),
+            *(_accepted_entities(coordinator)),
             GivEnergyInstallSelectedFirmwareButton(coordinator),
         ]
+    )
+
+    for accepted in hub.accepted_secondary_coordinators():
+        async_add_entities(_accepted_entities(accepted))
+
+    def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
+        if signal_entry_id == entry.entry_id:
+            hass.async_add_job(async_add_entities, _accepted_entities(target))
+
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_ACCEPTED_CHARGE_POINT, _on_accepted)
     )
 
 

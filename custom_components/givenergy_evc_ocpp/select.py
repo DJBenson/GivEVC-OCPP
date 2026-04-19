@@ -6,11 +6,13 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
 from .entity import GivEnergyEvcEntity
+from .hub import SIGNAL_ACCEPTED_CHARGE_POINT
 
 
 async def async_setup_entry(
@@ -27,6 +29,16 @@ async def async_setup_entry(
             GivEnergyChargeModeSelect(coordinator),
             GivEnergyFirmwareFileSelect(coordinator),
         ]
+    )
+    for accepted in runtime.hub.accepted_secondary_coordinators():
+        async_add_entities([GivEnergyChargeModeSelect(accepted)])
+
+    def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
+        if signal_entry_id == entry.entry_id:
+            hass.async_add_job(async_add_entities, [GivEnergyChargeModeSelect(target)])
+
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_ACCEPTED_CHARGE_POINT, _on_accepted)
     )
 
 
