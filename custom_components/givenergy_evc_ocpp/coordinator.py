@@ -1479,7 +1479,9 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if all_days_selected:
             recurrency = "Daily"
             now_utc = datetime.now(UTC)
-            anchor = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            anchor = (now_utc - timedelta(days=now_utc.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
 
             now_local = datetime.now(local_tz)
             local_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
