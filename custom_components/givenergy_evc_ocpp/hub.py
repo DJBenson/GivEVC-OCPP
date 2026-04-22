@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
 
 HUB_STORAGE_VERSION = 1
 SIGNAL_ACCEPTED_CHARGE_POINT = f"{DOMAIN}_accepted_charge_point"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class GivEnergyChargePointHub:
@@ -76,12 +80,15 @@ class GivEnergyChargePointHub:
                 self.entry,
                 charge_point_id=charge_point_id,
                 legacy_entity_ids=False,
-                use_storage=False,
+                use_storage=True,
             )
             coordinator.data.charge_point_id = charge_point_id
             coordinator.data.adopted = True
             self._attach_shared_runtime(coordinator)
-            await coordinator.async_start(manage_firmware_server=False)
+            await coordinator.async_restore_persisted_state()
+            coordinator.data.charge_point_id = charge_point_id
+            coordinator.data.adopted = True
+            await self._async_start_secondary_coordinator(coordinator)
             self._secondary_coordinators[charge_point_id] = coordinator
 
     async def async_stop(self) -> None:
@@ -114,9 +121,12 @@ class GivEnergyChargePointHub:
         """Attach the shared firmware transfer server."""
 
         self.firmware_server = firmware_server
-        self.primary_coordinator.set_firmware_server(firmware_server)
+        self.primary_coordinator.set_firmware_server(firmware_server, register_events=False)
+        self.primary_coordinator.data.firmware_server_running = firmware_server.is_running
         for coordinator in self._secondary_coordinators.values():
             coordinator.set_firmware_server(firmware_server, register_events=False)
+            coordinator.data.firmware_server_running = firmware_server.is_running
+        firmware_server.set_event_callback(self._async_handle_firmware_server_event)
 
     def coordinator_for_connection(
         self, candidate_id: str | None
@@ -148,13 +158,13 @@ class GivEnergyChargePointHub:
                     self.entry,
                     charge_point_id=normalized_id,
                     legacy_entity_ids=False,
-                    use_storage=False,
+                    use_storage=True,
                 )
                 coordinator.data.charge_point_id = normalized_id
                 self._attach_shared_runtime(coordinator)
                 self._secondary_coordinators[normalized_id] = coordinator
                 self.hass.async_create_task(
-                    coordinator.async_start(manage_firmware_server=False)
+                    self._async_start_secondary_coordinator(coordinator)
                 )
             return coordinator
 
@@ -271,6 +281,148 @@ class GivEnergyChargePointHub:
             coordinator.set_server(self.server)
         if self.firmware_server is not None:
             coordinator.set_firmware_server(self.firmware_server, register_events=False)
+            coordinator.data.firmware_server_running = self.firmware_server.is_running
+
+    async def _async_start_secondary_coordinator(
+        self, coordinator: GivEnergyEvcCoordinator
+    ) -> None:
+        """Start a secondary coordinator against shared runtime services."""
+
+        await coordinator.async_start(manage_firmware_server=False)
+        if self.firmware_server is None or not self.firmware_server.is_running:
+            return
+        coordinator.data.firmware_server_running = True
+        if coordinator.data.firmware_manifest_entries:
+            coordinator.publish_state()
+            return
+        try:
+            await coordinator.async_refresh_firmware_manifest()
+        except HomeAssistantError as err:
+            _LOGGER.debug(
+                "Unable to refresh firmware manifest for %s: %s",
+                self._coordinator_charge_point_id(coordinator),
+                err,
+            )
+
+    async def _async_handle_firmware_server_event(self, event: dict[str, Any]) -> None:
+        """Route shared firmware-server events to the charger they belong to."""
+
+        event_type = event.get("event")
+        if event_type in {"server_started", "server_stopped", "server_error"}:
+            for coordinator in self._all_coordinators():
+                await coordinator.async_handle_firmware_server_event(event)
+            if event_type == "server_started":
+                await self._async_refresh_firmware_manifests()
+            return
+
+        target = self._coordinator_for_firmware_event(event)
+        await target.async_handle_firmware_server_event(event)
+
+    async def _async_refresh_firmware_manifests(self) -> None:
+        """Refresh firmware catalogs for all accepted chargers after server start."""
+
+        for coordinator in self._all_coordinators():
+            if coordinator.data.firmware_manifest_entries:
+                continue
+            try:
+                await coordinator.async_refresh_firmware_manifest()
+            except HomeAssistantError as err:
+                _LOGGER.debug(
+                    "Unable to refresh firmware manifest for %s: %s",
+                    self._coordinator_charge_point_id(coordinator),
+                    err,
+                )
+
+    def _coordinator_for_firmware_event(self, event: dict[str, Any]) -> GivEnergyEvcCoordinator:
+        """Return the coordinator most likely to own a transfer-server event."""
+
+        filename = self._firmware_event_filename(event)
+        remote_host = self._remote_host(event.get("remote"))
+
+        if remote_host:
+            for coordinator in self._all_coordinators():
+                if not self._firmware_update_active(coordinator):
+                    continue
+                if self._remote_host(coordinator.data.websocket_remote_address) == remote_host:
+                    return coordinator
+
+        if filename:
+            for coordinator in self._all_coordinators():
+                if not self._firmware_update_active(coordinator):
+                    continue
+                if filename in self._firmware_filenames_for(coordinator):
+                    return coordinator
+
+        active = [
+            coordinator
+            for coordinator in self._all_coordinators()
+            if self._firmware_update_active(coordinator)
+        ]
+        if len(active) == 1:
+            return active[0]
+
+        if remote_host:
+            for coordinator in self._all_coordinators():
+                if self._remote_host(coordinator.data.websocket_remote_address) == remote_host:
+                    return coordinator
+
+        if filename:
+            for coordinator in self._all_coordinators():
+                if filename in self._firmware_filenames_for(coordinator):
+                    return coordinator
+
+        return self.primary_coordinator
+
+    def _all_coordinators(self) -> list[GivEnergyEvcCoordinator]:
+        """Return primary and secondary coordinators."""
+
+        return [self.primary_coordinator, *self._secondary_coordinators.values()]
+
+    @staticmethod
+    def _firmware_update_active(coordinator: GivEnergyEvcCoordinator) -> bool:
+        """Return whether a coordinator has an in-flight firmware update."""
+
+        return coordinator.data.firmware_update_state in {
+            "Downloading",
+            "Downloaded",
+            "Installing",
+        }
+
+    @staticmethod
+    def _firmware_filenames_for(coordinator: GivEnergyEvcCoordinator) -> set[str]:
+        """Return normalized firmware filenames associated with a coordinator."""
+
+        return {
+            Path(str(value)).name
+            for value in (
+                coordinator.data.firmware_update_target_file,
+                coordinator.data.selected_firmware_file,
+            )
+            if value
+        }
+
+    @staticmethod
+    def _firmware_event_filename(event: dict[str, Any]) -> str | None:
+        """Return the normalized filename from a firmware-server event."""
+
+        value = event.get("filename") or event.get("requested_filename")
+        if not value:
+            return None
+        filename = Path(str(value)).name
+        return filename or None
+
+    @staticmethod
+    def _remote_host(value: Any) -> str | None:
+        """Return host without port for a remote endpoint string."""
+
+        if not value:
+            return None
+        remote = str(value).strip()
+        if not remote:
+            return None
+        if remote.startswith("["):
+            return remote[1:].split("]", 1)[0].strip() or None
+        return remote.rsplit(":", 1)[0].strip() or None
 
     def _schedule_save(self) -> None:
         """Persist accepted charge points."""

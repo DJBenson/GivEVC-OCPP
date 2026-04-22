@@ -24,18 +24,19 @@ async def async_setup_entry(
 
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
-    async_add_entities(
-        [
-            GivEnergyChargeModeSelect(coordinator),
-            GivEnergyFirmwareFileSelect(coordinator),
+    def _entities(target: GivEnergyEvcCoordinator) -> list[SelectEntity]:
+        return [
+            GivEnergyChargeModeSelect(target),
+            GivEnergyFirmwareFileSelect(target),
         ]
-    )
+
+    async_add_entities(_entities(coordinator))
     for accepted in runtime.hub.accepted_secondary_coordinators():
-        async_add_entities([GivEnergyChargeModeSelect(accepted)])
+        async_add_entities(_entities(accepted))
 
     def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
         if signal_entry_id == entry.entry_id:
-            hass.async_add_job(async_add_entities, [GivEnergyChargeModeSelect(target)])
+            hass.async_add_job(async_add_entities, _entities(target))
 
     entry.async_on_unload(
         async_dispatcher_connect(hass, SIGNAL_ACCEPTED_CHARGE_POINT, _on_accepted)

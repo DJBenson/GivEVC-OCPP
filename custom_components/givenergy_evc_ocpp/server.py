@@ -68,6 +68,7 @@ class GivEnergyOcppServer:
         session = self._sessions.pop(charge_point_id, None)
         if session is not None:
             await session.async_close("Charge point removed from Home Assistant")
+            await session.coordinator.async_connection_closed()
 
     async def async_send_call(
         self, charge_point_id: str | None, action: str, payload: dict, timeout: int
@@ -106,9 +107,9 @@ class GivEnergyOcppServer:
         if candidate_id:
             existing_session = self._sessions.get(candidate_id)
             if existing_session is not None and not existing_session.websocket.closed:
-                return web.Response(status=409, text="Charge point already connected")
+                await existing_session.async_close("Replacing existing OCPP session")
 
-        websocket = web.WebSocketResponse(protocols=(WEBSOCKET_SUBPROTOCOL,))
+        websocket = web.WebSocketResponse(protocols=(WEBSOCKET_SUBPROTOCOL,), heartbeat=15)
         await websocket.prepare(request)
 
         if websocket.ws_protocol != WEBSOCKET_SUBPROTOCOL:
@@ -128,7 +129,8 @@ class GivEnergyOcppServer:
         try:
             await session.run()
         finally:
-            self._sessions.pop(session_key, None)
-            await coordinator.async_connection_closed()
+            if self._sessions.get(session_key) is session:
+                self._sessions.pop(session_key, None)
+                await coordinator.async_connection_closed()
 
         return websocket

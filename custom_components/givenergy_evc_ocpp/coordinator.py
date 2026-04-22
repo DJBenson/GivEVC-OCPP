@@ -193,8 +193,12 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self._firmware_server_auto_stop_task = None
         self._legacy_entity_ids = legacy_entity_ids
         self._use_storage = use_storage
+        storage_key = f"{DOMAIN}_{entry.entry_id}_state"
+        if charge_point_id and not legacy_entity_ids:
+            safe_charge_point_id = re.sub(r"[^A-Za-z0-9_.-]", "_", charge_point_id)
+            storage_key = f"{DOMAIN}_{entry.entry_id}_{safe_charge_point_id}_state"
         self._store = (
-            Store[dict[str, Any]](hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_state")
+            Store[dict[str, Any]](hass, STORAGE_VERSION, storage_key)
             if use_storage
             else None
         )
@@ -612,6 +616,11 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.firmware_server = server
         if server is not None and register_events:
             server.set_event_callback(self._async_handle_firmware_server_event)
+
+    async def async_handle_firmware_server_event(self, event: dict[str, Any]) -> None:
+        """Record a firmware transfer-server event routed by the shared hub."""
+
+        await self._async_handle_firmware_server_event(event)
 
     def can_accept_charge_point(self, candidate_id: str | None) -> bool:
         """Return whether the candidate charge point should be accepted."""

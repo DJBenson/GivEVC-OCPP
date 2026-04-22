@@ -94,14 +94,10 @@ async def async_setup_entry(
     def _accepted_entities(target: GivEnergyEvcCoordinator) -> list[ButtonEntity]:
         return [
             *(GivEnergyEvcButton(target, description) for description in BUTTONS),
+            GivEnergyInstallSelectedFirmwareButton(target),
         ]
 
-    async_add_entities(
-        [
-            *(_accepted_entities(coordinator)),
-            GivEnergyInstallSelectedFirmwareButton(coordinator),
-        ]
-    )
+    async_add_entities(_accepted_entities(coordinator))
 
     for accepted in hub.accepted_secondary_coordinators():
         async_add_entities(_accepted_entities(accepted))
