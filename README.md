@@ -219,7 +219,6 @@ Depending on what the charger reports, Home Assistant can expose:
 - `Plug and Go` - when enabled, charging starts automatically as soon as a car is plugged in
 - `Local Modbus` - _yes_, it still supports local modbus, the limitations (modbus on ethernet only active after ~10 minutes) still apply, so GivTCP can still read/control the EVC alongside this integration
 - `Front panel LEDs`
-- `Firmware server` - enables the built-in firmware transfer server (see Firmware management)
 
 **Numbers**
 - `Current limit` (`A`) - set the maximum charge current
@@ -279,15 +278,15 @@ Example:
 
 ## Firmware management
 
-The integration includes a built-in firmware management tool which is disabled by default. Firmware versions are discovered from a configurable manifest URL, which by default points at the separate firmware repository ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)). When you enable the firmware server, the manifest is loaded and the available firmware files are shown in the drop down.
+The integration includes a built-in firmware management tool which is disabled by default. Firmware versions are discovered from a configurable manifest URL, which by default points at the separate firmware repository ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)). The firmware server is a global integration option, not a charger entity; enable it from `Settings -> Devices & Services -> GivEnergy EVC OCPP -> Configure`. When enabled, the manifest is loaded and the available firmware files are shown in each charger's firmware file drop down.
 
 Firmware files are downloaded on demand into the local cache and kept there for reuse. Before any update is sent to the charger, the integration verifies the cached file against the manifest checksum. If the file is missing or does not match, it is downloaded again. The drop down shows either `[cached]` or `[download]` to indicate whether the file already exists locally.
 
-1. Ensure you are running at least version 0.2.0 of the integration
-2. Enable the "Firmware server" toggle
-3. Select a firmware file from the drop down list
-4. Click on the "Install selected firmware" button
-5. Wait! Keep an eye on the Firmware Status sensor - all being well it should go from Downloading -> Downloaded -> Installing -> Installed within a couple of minutes
+1. Ensure you are running at least version 0.3.0b6 of the integration
+2. Open the integration options and enable `Firmware server`
+3. Select a firmware file from the target charger's drop down list
+4. Click on the target charger's `Install selected firmware` button
+5. Wait! Keep an eye on that charger's Firmware Status sensor - all being well it should go from Downloading -> Downloaded -> Installing -> Installed within a couple of minutes
 6. Check the version number at the top left hand corner of the integration once the sensor shows ```Installed```.
 
 <table>

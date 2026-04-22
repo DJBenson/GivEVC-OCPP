@@ -17,6 +17,7 @@ from .const import (
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
     CONF_FIRMWARE_MANIFEST_URL,
+    CONF_FIRMWARE_SERVER_ENABLED,
     CONF_FIRMWARE_SERVER_PORT,
     LEGACY_CONF_FIRMWARE_FTP_PORT,
     CONF_LISTEN_PORT,
@@ -24,6 +25,7 @@ from .const import (
     DEFAULT_COMMAND_TIMEOUT,
     DEFAULT_DEBUG_LOGGING,
     DEFAULT_ENHANCED_LOGGING,
+    DEFAULT_FIRMWARE_SERVER_ENABLED,
     DEFAULT_FIRMWARE_MANIFEST_URL,
     DEFAULT_FIRMWARE_SERVER_PORT,
     DEFAULT_LISTEN_HOST,
@@ -81,6 +83,12 @@ def _build_user_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
             vol.Required(
+                CONF_FIRMWARE_SERVER_ENABLED,
+                default=defaults.get(
+                    CONF_FIRMWARE_SERVER_ENABLED, DEFAULT_FIRMWARE_SERVER_ENABLED
+                ),
+            ): bool,
+            vol.Required(
                 CONF_FIRMWARE_SERVER_PORT,
                 default=_configured_firmware_server_port(defaults),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
@@ -114,6 +122,12 @@ def _build_options_schema(defaults: Mapping[str, Any]) -> vol.Schema:
                 CONF_LISTEN_PORT,
                 default=defaults.get(CONF_LISTEN_PORT, DEFAULT_LISTEN_PORT),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
+            vol.Required(
+                CONF_FIRMWARE_SERVER_ENABLED,
+                default=defaults.get(
+                    CONF_FIRMWARE_SERVER_ENABLED, DEFAULT_FIRMWARE_SERVER_ENABLED
+                ),
+            ): bool,
             vol.Required(
                 CONF_FIRMWARE_SERVER_PORT,
                 default=_configured_firmware_server_port(defaults),
@@ -188,6 +202,9 @@ class GivEnergyEvcOcppConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ],
                 }
                 options = {
+                    CONF_FIRMWARE_SERVER_ENABLED: user_input[
+                        CONF_FIRMWARE_SERVER_ENABLED
+                    ],
                     CONF_DEBUG_LOGGING: DEFAULT_DEBUG_LOGGING,
                     CONF_COMMAND_TIMEOUT: DEFAULT_COMMAND_TIMEOUT,
                     CONF_ENHANCED_LOGGING: user_input[CONF_ENHANCED_LOGGING],
@@ -256,6 +273,9 @@ class GivEnergyEvcOcppOptionsFlow(config_entries.OptionsFlow):
                         CONF_FIRMWARE_MANIFEST_URL: user_input[
                             CONF_FIRMWARE_MANIFEST_URL
                         ].strip(),
+                        CONF_FIRMWARE_SERVER_ENABLED: user_input[
+                            CONF_FIRMWARE_SERVER_ENABLED
+                        ],
                         CONF_DEBUG_LOGGING: user_input[CONF_DEBUG_LOGGING],
                         CONF_ENHANCED_LOGGING: user_input[CONF_ENHANCED_LOGGING],
                         CONF_COMMAND_TIMEOUT: user_input[CONF_COMMAND_TIMEOUT],

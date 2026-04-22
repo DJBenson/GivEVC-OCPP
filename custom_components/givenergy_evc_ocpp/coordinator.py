@@ -2548,6 +2548,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     def _schedule_firmware_server_auto_stop(self) -> None:
         """Stop the firmware server automatically after a confirmed successful install."""
 
+        if self.data.firmware_server_enabled:
+            return
         if not self.data.firmware_server_running or self.firmware_server is None:
             return
         if self._firmware_server_auto_stop_task is not None:

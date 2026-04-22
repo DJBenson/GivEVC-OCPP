@@ -17,6 +17,7 @@ from homeassistant.helpers.device_registry import DeviceEntry
 from .const import (
     ATTR_CHARGE_POINT_ID,
     ATTR_ENTRY_ID,
+    CONF_FIRMWARE_SERVER_ENABLED,
     DOMAIN,
     PLATFORMS,
     SERVICE_ADD_RFID_TAG,
@@ -70,6 +71,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_restore_persisted_state()
     reload_state = hass.data[DOMAIN].get(RELOAD_STATE_KEY, {}).pop(entry.entry_id, None)
     coordinator.restore_reload_state(reload_state)
+    coordinator.data.firmware_server_enabled = bool(
+        entry.options.get(
+            CONF_FIRMWARE_SERVER_ENABLED,
+            entry.data.get(CONF_FIRMWARE_SERVER_ENABLED, False),
+        )
+    )
     hub = GivEnergyChargePointHub(hass, entry, coordinator)
     await hub.async_restore_persisted_state()
     server = GivEnergyOcppServer(hass, hub)
