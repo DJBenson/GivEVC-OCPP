@@ -8,5 +8,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/DJBenson/GivEVC-OCPP/issues",
   "loggers": ["custom_components.givenergy_evc_ocpp"],
-  "version": "0.3.0b6"
+  "version": "0.3.0b7"
 }
