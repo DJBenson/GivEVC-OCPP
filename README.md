@@ -280,7 +280,7 @@ Example:
 
 The integration includes a built-in firmware management tool which is disabled by default. Firmware versions are discovered from a configurable manifest URL, which by default points at the separate firmware repository ([github.com/djbenson/giv-firmware](https://github.com/djbenson/giv-firmware/)). The firmware server is a global integration option, not a charger entity; enable it from `Settings -> Devices & Services -> GivEnergy EVC OCPP -> Configure`. When enabled, the manifest is loaded and the available firmware files are shown in each charger's firmware file drop down.
 
-Firmware files are downloaded on demand into the local cache and kept there for reuse. Before any update is sent to the charger, the integration verifies the cached file against the manifest checksum. If the file is missing or does not match, it is downloaded again. The drop down shows either `[cached]` or `[download]` to indicate whether the file already exists locally.
+Firmware files are downloaded on demand into the local cache and kept there for reuse. Before any update is sent to the charger, the integration verifies the cached file against the manifest checksum. If the file is missing or does not match, it is downloaded again. The drop down shows either `[Local]` or `[Remote]` to indicate whether the file already exists locally or will be downloaded.
 
 1. Ensure you are running at least version 0.3.0b6 of the integration
 2. Open the integration options and enable `Firmware server`
