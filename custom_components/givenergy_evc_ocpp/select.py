@@ -124,7 +124,7 @@ class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
     def _option_label(self, filename: str) -> str:
         """Return the UI label for a firmware file."""
 
-        prefix = "[cached]" if self.coordinator.is_firmware_cached(filename) else "[download]"
+        prefix = "[Local]" if self.coordinator.is_firmware_cached(filename) else "[Remote]"
         return f"{prefix} {filename}"
 
     def _filename_from_option(self, option: str) -> str:
