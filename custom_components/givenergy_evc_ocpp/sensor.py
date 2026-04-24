@@ -21,12 +21,14 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_EVSE_MAX_CURRENT, DEFAULT_EVSE_MIN_CURRENT, DOMAIN
 from .coordinator import GivEnergyEvcCoordinator
 from .entity import GivEnergyEvcEntity
+from .hub import SIGNAL_ACCEPTED_CHARGE_POINT
 
 
 def _format_local_timestamp(value: Any) -> str | None:
@@ -380,6 +382,21 @@ async def async_setup_entry(
     runtime = hass.data[DOMAIN][entry.entry_id]
     coordinator: GivEnergyEvcCoordinator = runtime.coordinator
     async_add_entities(GivEnergyEvcSensor(coordinator, description) for description in SENSORS)
+    for accepted in runtime.hub.accepted_secondary_coordinators():
+        async_add_entities(
+            GivEnergyEvcSensor(accepted, description) for description in SENSORS
+        )
+
+    def _on_accepted(signal_entry_id: str, target: GivEnergyEvcCoordinator) -> None:
+        if signal_entry_id == entry.entry_id:
+            hass.async_add_job(
+                async_add_entities,
+                [GivEnergyEvcSensor(target, description) for description in SENSORS],
+            )
+
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, SIGNAL_ACCEPTED_CHARGE_POINT, _on_accepted)
+    )
 
 
 class GivEnergyEvcSensor(GivEnergyEvcEntity, SensorEntity):

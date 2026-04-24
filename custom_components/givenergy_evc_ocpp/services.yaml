@@ -9,6 +9,10 @@ set_charging_schedule:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
     days:
       name: Days
       description: Days the schedule applies to. Leave empty for every day.
@@ -76,11 +80,19 @@ clear_charging_schedule:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
 add_rfid_tag:
   name: Add RFID tag
   description: Add or update an RFID tag on the charger's local authorisation list.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -106,6 +118,10 @@ remove_rfid_tag:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
     id_tag:
       name: Tag ID
       description: The RFID tag identifier to remove.
@@ -118,6 +134,10 @@ reset:
   description: Send a soft or hard OCPP Reset command to the connected charger.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -136,6 +156,10 @@ unlock_connector:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
     connector_id:
       required: false
       default: 1
@@ -148,6 +172,10 @@ trigger_message:
   description: Ask the charger to send a specific OCPP message, such as MeterValues.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -169,6 +197,10 @@ get_configuration:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
     keys:
       required: false
       selector:
@@ -178,6 +210,10 @@ change_configuration:
   description: Send a ChangeConfiguration request to the charger.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -194,6 +230,10 @@ remote_start_transaction:
   description: Start charging remotely using OCPP RemoteStartTransaction.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -219,6 +259,10 @@ remote_stop_transaction:
       required: false
       selector:
         text:
+    charge_point_id:
+      required: false
+      selector:
+        text:
     transaction_id:
       required: false
       selector:
@@ -230,6 +274,10 @@ set_charging_profile:
   description: Send a raw SetChargingProfile OCPP request.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:
@@ -248,6 +296,10 @@ clear_charging_profile:
   description: Clear one or more charging profiles from the charger.
   fields:
     entry_id:
+      required: false
+      selector:
+        text:
+    charge_point_id:
       required: false
       selector:
         text:

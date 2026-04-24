@@ -6,12 +6,22 @@
         "description": "Start a dedicated local OCPP 1.6J listener for a GivEnergy EVC.",
         "data": {
           "listen_port": "Listen port",
+          "firmware_server_enabled": "Enable firmware server",
           "firmware_server_port": "Firmware server port",
           "firmware_manifest_url": "Firmware manifest URL",
-          "expected_charge_point_id": "Expected charge point ID",
-          "adopt_first_charger": "Automatically adopt the first charger that connects",
           "meter_value_sample_interval_seconds": "Meter values interval (seconds)",
           "enhanced_logging": "Capture enhanced OCPP diagnostics"
+        },
+        "data_description": {
+          "firmware_server_enabled": "Start the shared firmware transfer server for all chargers."
+        }
+      },
+      "init": {
+        "data": {
+          "firmware_server_enabled": "Enable firmware server"
+        },
+        "data_description": {
+          "firmware_server_enabled": "Start the shared firmware transfer server for all chargers."
         }
       }
     },
@@ -31,14 +41,16 @@
         "title": "GivEnergy EVC OCPP options",
         "data": {
           "listen_port": "Listen port",
+          "firmware_server_enabled": "Enable firmware server",
           "firmware_server_port": "Firmware server port",
           "firmware_manifest_url": "Firmware manifest URL",
-          "expected_charge_point_id": "Expected charge point ID",
-          "adopt_first_charger": "Automatically adopt the first charger that connects",
           "debug_logging": "Enable verbose OCPP logging",
+          "enhanced_logging": "Capture enhanced OCPP diagnostics",
           "command_timeout_seconds": "Command timeout (seconds)",
-          "meter_value_sample_interval_seconds": "Meter values interval (seconds)",
-          "enhanced_logging": "Capture enhanced OCPP diagnostics"
+          "meter_value_sample_interval_seconds": "Meter values interval (seconds)"
+        },
+        "data_description": {
+          "firmware_server_enabled": "Start the shared firmware transfer server for all chargers."
         }
       }
     },

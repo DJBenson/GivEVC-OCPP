@@ -27,11 +27,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_ADOPT_FIRST_CHARGER,
     CONF_COMMAND_TIMEOUT,
     CONF_DEBUG_LOGGING,
     CONF_ENHANCED_LOGGING,
-    CONF_EXPECTED_CHARGE_POINT_ID,
     CONF_FIRMWARE_MANIFEST_URL,
     CONF_FIRMWARE_SERVER_PORT,
     LEGACY_CONF_FIRMWARE_FTP_PORT,
@@ -167,7 +165,15 @@ class GivEnergyEvcState:
 class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     """Coordinator for GivEnergy EVC state and commands."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        *,
+        charge_point_id: str | None = None,
+        legacy_entity_ids: bool = True,
+        use_storage: bool = True,
+    ) -> None:
         """Initialise the coordinator."""
 
         super().__init__(
@@ -178,13 +184,23 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         )
         self.entry = entry
         self.data = GivEnergyEvcState()
+        if charge_point_id:
+            self.data.charge_point_id = charge_point_id
         self.server: Any = None
         self.firmware_server: Any = None
         self._unsub_timer: CALLBACK_TYPE | None = None
         self._next_transaction_id = 1
         self._firmware_server_auto_stop_task = None
-        self._store = Store[dict[str, Any]](
-            hass, STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_state"
+        self._legacy_entity_ids = legacy_entity_ids
+        self._use_storage = use_storage
+        storage_key = f"{DOMAIN}_{entry.entry_id}_state"
+        if charge_point_id and not legacy_entity_ids:
+            safe_charge_point_id = re.sub(r"[^A-Za-z0-9_.-]", "_", charge_point_id)
+            storage_key = f"{DOMAIN}_{entry.entry_id}_{safe_charge_point_id}_state"
+        self._store = (
+            Store[dict[str, Any]](hass, STORAGE_VERSION, storage_key)
+            if use_storage
+            else None
         )
 
     def export_reload_state(self) -> dict[str, Any]:
@@ -370,31 +386,34 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     async def async_restore_persisted_state(self) -> None:
         """Restore persisted transaction/session state from storage."""
 
+        if self._store is None:
+            return
         stored = await self._store.async_load()
         self.restore_reload_state(stored)
 
-    async def async_start(self) -> None:
+    async def async_start(self, *, manage_firmware_server: bool = True) -> None:
         """Start coordinator tasks."""
 
-        try:
-            await self.async_refresh_firmware_manifest()
-        except HomeAssistantError as err:
-            self.data.firmware_manifest_error = str(err)
-            self.data.firmware_server_enabled = False
-
-        if self.data.firmware_server_enabled and self.firmware_server is not None:
+        if manage_firmware_server:
             try:
-                if not self.data.available_firmware_files:
-                    raise HomeAssistantError(
-                        "No firmware entries were loaded from the configured manifest"
-                    )
-                await self.firmware_server.async_start(self.firmware_server_port)
+                await self.async_refresh_firmware_manifest()
             except HomeAssistantError as err:
-                self.data.firmware_server_running = False
-                self.data.firmware_server_error = str(err)
-            else:
-                self.data.firmware_server_running = True
-                self.data.firmware_server_error = None
+                self.data.firmware_manifest_error = str(err)
+                self.data.firmware_server_enabled = False
+
+            if self.data.firmware_server_enabled and self.firmware_server is not None:
+                try:
+                    if not self.data.available_firmware_files:
+                        raise HomeAssistantError(
+                            "No firmware entries were loaded from the configured manifest"
+                        )
+                    await self.firmware_server.async_start(self.firmware_server_port)
+                except HomeAssistantError as err:
+                    self.data.firmware_server_running = False
+                    self.data.firmware_server_error = str(err)
+                else:
+                    self.data.firmware_server_running = True
+                    self.data.firmware_server_error = None
 
         if self._unsub_timer is None:
             self._unsub_timer = async_track_time_interval(
@@ -423,6 +442,18 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         return bool(self.data.charge_point_id or self.data.last_boot_notification)
 
     @property
+    def entity_unique_id_prefix(self) -> str:
+        """Return the entity unique ID prefix for this coordinator."""
+
+        if self._legacy_entity_ids:
+            return self.entry.entry_id
+
+        charge_point_id = self.data.charge_point_id or self.data.path_charge_point_id
+        if charge_point_id:
+            return f"{self.entry.entry_id}_{charge_point_id}"
+        return f"{self.entry.entry_id}_pending"
+
+    @property
     def debug_logging(self) -> bool:
         """Return whether verbose logging is enabled."""
 
@@ -442,29 +473,6 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         return int(
             self.entry.options.get(CONF_COMMAND_TIMEOUT, DEFAULT_COMMAND_TIMEOUT)
-        )
-
-    @property
-    def expected_charge_point_id(self) -> str | None:
-        """Return the configured charge point path filter."""
-
-        value = self.entry.options.get(
-            CONF_EXPECTED_CHARGE_POINT_ID,
-            self.entry.data.get(CONF_EXPECTED_CHARGE_POINT_ID),
-        )
-        if value:
-            return str(value).strip()
-        return None
-
-    @property
-    def adopt_first_charger(self) -> bool:
-        """Return whether the first charger should be adopted automatically."""
-
-        return bool(
-            self.entry.options.get(
-                CONF_ADOPT_FIRST_CHARGER,
-                self.entry.data.get(CONF_ADOPT_FIRST_CHARGER, True),
-            )
         )
 
     @property
@@ -548,20 +556,29 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     def device_info(self) -> DeviceInfo:
         """Return Home Assistant device metadata."""
 
-        identifiers: set[tuple[str, str]] = {(DOMAIN, f"entry:{self.entry.entry_id}")}
+        identifiers: set[tuple[str, str]] = set()
+        entry_id = self.entry.entry_id
 
-        if self.data.charge_point_id:
-            identifiers.add((DOMAIN, f"charge_point_id:{self.data.charge_point_id}"))
+        # All identifiers are scoped to the current config entry so they cannot
+        # accidentally match a stale device from a previous installation.
+        if self._legacy_entity_ids:
+            identifiers.add((DOMAIN, f"entry:{entry_id}"))
+
+        effective_charge_point_id = (
+            self.data.charge_point_id or self.data.path_charge_point_id
+        )
+        if effective_charge_point_id:
+            identifiers.add((DOMAIN, f"{entry_id}:charge_point_id:{effective_charge_point_id}"))
         if self.data.charge_point_serial_number:
             identifiers.add(
                 (
                     DOMAIN,
-                    f"charge_point_serial:{self.data.charge_point_serial_number}",
+                    f"{entry_id}:charge_point_serial:{self.data.charge_point_serial_number}",
                 )
             )
         if self.data.charge_box_serial_number:
             identifiers.add(
-                (DOMAIN, f"charge_box_serial:{self.data.charge_box_serial_number}")
+                (DOMAIN, f"{entry_id}:charge_box_serial:{self.data.charge_box_serial_number}")
             )
 
         name_parts = [
@@ -572,8 +589,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             )
             if part
         ]
-        if self.data.charge_point_id:
-            name_parts.append(self.data.charge_point_id)
+        if effective_charge_point_id:
+            name_parts.append(effective_charge_point_id)
 
         return DeviceInfo(
             identifiers=identifiers,
@@ -584,7 +601,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             serial_number=(
                 self.data.charge_point_serial_number
                 or self.data.charge_box_serial_number
-                or self.data.charge_point_id
+                or effective_charge_point_id
             ),
         )
 
@@ -593,23 +610,22 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         self.server = server
 
-    def set_firmware_server(self, server: Any) -> None:
+    def set_firmware_server(self, server: Any, *, register_events: bool = True) -> None:
         """Attach the local firmware transfer server wrapper."""
 
         self.firmware_server = server
-        if server is not None:
+        if server is not None and register_events:
             server.set_event_callback(self._async_handle_firmware_server_event)
+
+    async def async_handle_firmware_server_event(self, event: dict[str, Any]) -> None:
+        """Record a firmware transfer-server event routed by the shared hub."""
+
+        await self._async_handle_firmware_server_event(event)
 
     def can_accept_charge_point(self, candidate_id: str | None) -> bool:
         """Return whether the candidate charge point should be accepted."""
 
-        expected = self.expected_charge_point_id
-        adopted = self.data.charge_point_id
-
-        if expected and candidate_id and candidate_id != expected:
-            return False
-        if adopted and candidate_id and candidate_id != adopted:
-            return False
+        del candidate_id
         return True
 
     async def async_note_rejected_charge_point(self, candidate_id: str | None) -> None:
@@ -634,12 +650,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if remote_host:
             self.data.websocket_remote_address = remote_host
 
-        if (
-            candidate_id
-            and not self.data.charge_point_id
-            and self.adopt_first_charger
-            and not self.expected_charge_point_id
-        ):
+        if candidate_id and not self.data.charge_point_id:
             self.data.charge_point_id = candidate_id
             self.data.adopted = True
 
@@ -672,15 +683,15 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.charge_box_serial_number = payload.get("chargeBoxSerialNumber")
 
         charge_point_id = (
-            self.expected_charge_point_id
-            or self.data.charge_point_id
+            self.data.charge_point_id
             or candidate_id
             or self.data.charge_point_serial_number
             or self.data.charge_box_serial_number
         )
         if charge_point_id:
             self.data.charge_point_id = charge_point_id
-            self.data.adopted = True
+            if self.data.adopted or self._legacy_entity_ids:
+                self.data.adopted = True
 
         self._touch_last_seen()
         self._handle_firmware_version_observed()
@@ -1477,7 +1488,9 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if all_days_selected:
             recurrency = "Daily"
             now_utc = datetime.now(UTC)
-            anchor = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+            anchor = (now_utc - timedelta(days=now_utc.weekday())).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
 
             now_local = datetime.now(local_tz)
             local_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -2208,9 +2221,10 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         if self.server is None:
             raise HomeAssistantError("OCPP server is not running")
+        charge_point_id = self.data.charge_point_id or self.data.path_charge_point_id
 
         result = await self.server.async_send_call(
-            action, payload, timeout=self.command_timeout
+            charge_point_id, action, payload, timeout=self.command_timeout
         )
         return result
 
@@ -2245,7 +2259,14 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         """Push the current state to entities."""
 
         self.async_set_updated_data(self.data)
-        self._store.async_delay_save(self._serialize_storage_state, 1.0)
+        if self._store is not None:
+            self._store.async_delay_save(self._serialize_storage_state, 1.0)
+
+    @callback
+    def publish_state(self) -> None:
+        """Public wrapper used by the hub to push state changes."""
+
+        self._publish_state()
 
     @callback
     def _touch_last_seen(self) -> None:
@@ -2527,6 +2548,8 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     def _schedule_firmware_server_auto_stop(self) -> None:
         """Stop the firmware server automatically after a confirmed successful install."""
 
+        if self.data.firmware_server_enabled:
+            return
         if not self.data.firmware_server_running or self.firmware_server is None:
             return
         if self._firmware_server_auto_stop_task is not None:
