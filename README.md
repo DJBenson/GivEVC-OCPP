@@ -159,9 +159,10 @@ If the charger doesn't connect, you missed something, go back and re-trace your 
 
 Examples:
 
-- `ws://homeassistant.local:7655`
 - `ws://192.168.1.50:7655`
 - `ws://192.168.1.50:7655/<charge_point_id>`
+
+```Note: be sure to use ws:// not wss:// or the charger will not connect!```
 
 If the charger connects without a path, that is fine. The integration can still identify and adopt it from the boot details it sends after connecting.
 
