@@ -283,7 +283,7 @@ The integration includes a built-in firmware management tool which is disabled b
 
 Firmware files are downloaded on demand into the local cache and kept there for reuse. Before any update is sent to the charger, the integration verifies the cached file against the manifest checksum. If the file is missing or does not match, it is downloaded again. The drop down shows either `[Local]` or `[Remote]` to indicate whether the file already exists locally or will be downloaded.
 
-1. Ensure you are running at least version 0.3.0b6 of the integration
+1. Ensure you are running at least version 0.3 of the integration
 2. Open the integration options and enable `Firmware server`
 3. Select a firmware file from the target charger's drop down list
 4. Click on the target charger's `Install selected firmware` button
