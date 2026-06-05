@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
+import socket
 from typing import Any
 
 import voluptuous as vol
@@ -36,6 +37,7 @@ from .const import (
     SERVICE_UNLOCK_CONNECTOR,
     SERVICE_UPDATE_FIRMWARE,
 )
+from . import api as _api
 from .coordinator import GivEnergyEvcCoordinator
 from .firmware_transfer_server import GivEnergyFirmwareTransferServer
 from .hub import GivEnergyChargePointHub
@@ -54,6 +56,7 @@ class GivEnergyRuntimeData:
     coordinator: GivEnergyEvcCoordinator
     server: GivEnergyOcppServer
     firmware_server: GivEnergyFirmwareTransferServer
+    zeroconf_info: Any = field(default=None)
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -111,6 +114,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Unable to listen on configured port {coordinator.listen_port}: {err}"
         ) from err
 
+    # Register REST API views once for the lifetime of the HA process.
+    # Views look up runtime data dynamically so they survive entry reloads.
+    if not hass.data[DOMAIN].get("views_registered"):
+        hass.http.register_view(_api.GivEnergyEvcApiStatusView())
+        hass.http.register_view(_api.GivEnergyEvcApiCommandView())
+        hass.data[DOMAIN]["views_registered"] = True
+
+    # Advertise via mDNS so the GivLocal app can discover us on the LAN.
+    runtime_data.zeroconf_info = await _async_register_zeroconf(hass, entry)
+
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
@@ -124,6 +137,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN].setdefault(RELOAD_STATE_KEY, {})[entry.entry_id] = (
         runtime.coordinator.export_reload_state()
     )
+
+    if runtime.zeroconf_info is not None:
+        await _async_unregister_zeroconf(hass, runtime.zeroconf_info)
 
     await runtime.server.async_stop()
     await runtime.firmware_server.async_stop()
@@ -514,6 +530,9 @@ def _async_unregister_services(hass: HomeAssistant) -> None:
     hass.data[DOMAIN]["services_registered"] = False
 
 
+_NON_RUNTIME_KEYS = frozenset({"services_registered", "views_registered", RELOAD_STATE_KEY})
+
+
 def _resolve_runtime(
     hass: HomeAssistant, entry_id: str | None
 ) -> GivEnergyRuntimeData:
@@ -522,7 +541,7 @@ def _resolve_runtime(
     runtimes: dict[str, GivEnergyRuntimeData] = {
         key: value
         for key, value in hass.data[DOMAIN].items()
-        if key not in {"services_registered", RELOAD_STATE_KEY}
+        if key not in _NON_RUNTIME_KEYS
     }
 
     if entry_id:
@@ -536,3 +555,83 @@ def _resolve_runtime(
         )
 
     return next(iter(runtimes.values()))
+
+
+# ---------------------------------------------------------------------------
+# mDNS advertisement helpers
+# ---------------------------------------------------------------------------
+
+
+def _local_ip() -> str | None:
+    """Return the local IP that would reach the outside network."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(0.1)
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except Exception:
+        return None
+
+
+async def _async_register_zeroconf(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> Any:
+    """Register a _givenergy-evc._tcp.local. mDNS service.
+
+    Returns the ServiceInfo instance so it can be passed to
+    _async_unregister_zeroconf on unload, or None on failure.
+    """
+    try:
+        from homeassistant.components import zeroconf as ha_zeroconf
+        from zeroconf import ServiceInfo
+    except ImportError:
+        _LOGGER.debug("zeroconf not available; skipping mDNS advertisement")
+        return None
+
+    local_ip = await hass.async_add_executor_job(_local_ip)
+    if not local_ip:
+        _LOGGER.warning(
+            "Could not determine local IP address; skipping mDNS advertisement"
+        )
+        return None
+
+    http_port = 8123
+    try:
+        if hass.http is not None:
+            http_port = hass.http.server_port
+    except AttributeError:
+        pass
+
+    try:
+        aiozc = await ha_zeroconf.async_get_instance(hass)
+        info = ServiceInfo(
+            type_="_givenergy-evc._tcp.local.",
+            name="GivEnergy EVC OCPP._givenergy-evc._tcp.local.",
+            addresses=[socket.inet_aton(local_ip)],
+            port=http_port,
+            properties={
+                b"path": b"/api/givenergy_evc_ocpp",
+                b"ver": b"1",
+            },
+            server=f"{socket.gethostname()}.local.",
+        )
+        await aiozc.async_register_service(info)
+        _LOGGER.debug(
+            "Registered mDNS _givenergy-evc._tcp.local. → %s:%s", local_ip, http_port
+        )
+        return info
+    except Exception as err:
+        _LOGGER.warning("Failed to register mDNS service: %s", err)
+        return None
+
+
+async def _async_unregister_zeroconf(hass: HomeAssistant, info: Any) -> None:
+    """Unregister the mDNS service registered by _async_register_zeroconf."""
+    try:
+        from homeassistant.components import zeroconf as ha_zeroconf
+
+        aiozc = await ha_zeroconf.async_get_instance(hass)
+        await aiozc.async_unregister_service(info)
+        _LOGGER.debug("Unregistered mDNS _givenergy-evc._tcp.local.")
+    except Exception as err:
+        _LOGGER.warning("Failed to unregister mDNS service: %s", err)
