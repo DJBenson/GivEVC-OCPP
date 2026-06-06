@@ -10,7 +10,10 @@ set_charging_schedule:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     days:
@@ -81,7 +84,10 @@ clear_charging_schedule:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
 add_rfid_tag:
@@ -93,7 +99,10 @@ add_rfid_tag:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     id_tag:
@@ -119,7 +128,10 @@ remove_rfid_tag:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     id_tag:
@@ -138,11 +150,15 @@ reset:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     type:
       required: true
+      example: "Soft"
       selector:
         select:
           options:
@@ -157,12 +173,16 @@ unlock_connector:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     connector_id:
       required: false
       default: 1
+      example: 1
       selector:
         number:
           min: 1
@@ -176,15 +196,20 @@ trigger_message:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     requested_message:
       required: true
+      example: "MeterValues"
       selector:
         text:
     connector_id:
       required: false
+      example: 1
       selector:
         number:
           min: 0
@@ -198,11 +223,15 @@ get_configuration:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     keys:
       required: false
+      example: ["HeartbeatInterval", "MeterValueSampleInterval"]
       selector:
         object:
 change_configuration:
@@ -214,15 +243,20 @@ change_configuration:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     key:
       required: true
+      example: "HeartbeatInterval"
       selector:
         text:
     value:
       required: true
+      example: "300"
       selector:
         text:
 remote_start_transaction:
@@ -234,15 +268,20 @@ remote_start_transaction:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     id_tag:
       required: false
+      example: "remote"
       selector:
         text:
     connector_id:
       required: false
+      example: 1
       selector:
         number:
           min: 1
@@ -260,11 +299,15 @@ remote_stop_transaction:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     transaction_id:
       required: false
+      example: 1
       selector:
         number:
           min: 1
@@ -278,17 +321,32 @@ set_charging_profile:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     connector_id:
       required: true
+      example: 1
       selector:
         number:
           min: 1
           max: 10
     charging_profile:
       required: true
+      example:
+        chargingProfileId: 1
+        stackLevel: 0
+        chargingProfilePurpose: TxDefaultProfile
+        chargingProfileKind: Recurring
+        recurrencyKind: Daily
+        chargingSchedule:
+          chargingRateUnit: A
+          chargingSchedulePeriod:
+            - startPeriod: 0
+              limit: 16
       selector:
         object:
 clear_charging_profile:
@@ -300,29 +358,36 @@ clear_charging_profile:
       selector:
         text:
     charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
       required: false
+      example: "CP001"
       selector:
         text:
     connector_id:
       required: false
+      example: 0
       selector:
         number:
           min: 0
           max: 10
     charging_profile_id:
       required: false
+      example: 1
       selector:
         number:
           min: 1
           max: 2147483647
     stack_level:
       required: false
+      example: 0
       selector:
         number:
           min: 0
           max: 100
     charging_profile_purpose:
       required: false
+      example: TxDefaultProfile
       selector:
         text:
 change_availability:
@@ -333,8 +398,16 @@ change_availability:
       required: false
       selector:
         text:
+    charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
+      required: false
+      example: "CP001"
+      selector:
+        text:
     operative:
       required: true
+      example: true
       selector:
         boolean:
 update_firmware:
@@ -345,22 +418,33 @@ update_firmware:
       required: false
       selector:
         text:
+    charge_point_id:
+      name: Charge point ID
+      description: Optional charger ID to target when multiple chargers are configured.
+      required: false
+      example: "CP001"
+      selector:
+        text:
     location:
       required: true
+      example: "http://homeassistant.local:8123/local/firmware.bin"
       selector:
         text:
     retrieve_date:
       required: true
+      example: "2026-12-31T00:00:00Z"
       selector:
         text:
     retries:
       required: false
+      example: 3
       selector:
         number:
           min: 0
           max: 100
     retry_interval:
       required: false
+      example: 60
       selector:
         number:
           min: 0
