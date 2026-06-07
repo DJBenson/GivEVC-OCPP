@@ -59,6 +59,7 @@ FIRMWARE_DOWNLOADING_TIMEOUT = timedelta(minutes=10)
 FIRMWARE_INSTALLING_TIMEOUT = timedelta(minutes=15)
 FIRMWARE_INSTALL_DISCONNECT_GRACE = timedelta(minutes=2)
 FIRMWARE_INSTALL_QUIET_GRACE = timedelta(seconds=90)
+PLUG_AND_GO_RESTART_GRACE = timedelta(minutes=5)
 
 
 @dataclass(slots=True)
@@ -732,12 +733,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         self._publish_state()
 
-        if (
-            self.data.plug_and_go_enabled
-            and previous_plugged_in is False
-            and self.data.car_plugged_in is True
-            and not self.data.transaction_active
-        ):
+        if self._should_start_plug_and_go(previous_plugged_in):
             self.hass.async_create_task(self._async_handle_plug_and_go_start())
 
     async def async_record_meter_values(self, payload: dict[str, Any]) -> None:
@@ -917,6 +913,13 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
 
         transaction_id = self._coerce_int(payload.get("transactionId"))
         if transaction_id is None:
+            return
+
+        if (
+            self.data.transaction_ended_at is not None
+            and self.data.transaction_id == transaction_id
+            and not self.data.transaction_active
+        ):
             return
 
         if self.data.transaction_id != transaction_id:
@@ -2311,6 +2314,32 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "SuspendedEV",
             "Finishing",
         }
+
+    def _should_start_plug_and_go(self, previous_plugged_in: bool | None) -> bool:
+        """Return whether a status transition should trigger Plug and Go."""
+
+        if not self.data.plug_and_go_enabled:
+            return False
+        if previous_plugged_in is not False or self.data.car_plugged_in is not True:
+            return False
+        if self.data.transaction_active:
+            return False
+        if self.data.status != "Preparing":
+            return False
+
+        if self.data.transaction_ended_at is None:
+            return True
+
+        elapsed_since_stop = datetime.now(UTC) - self.data.transaction_ended_at
+        if elapsed_since_stop < PLUG_AND_GO_RESTART_GRACE:
+            _LOGGER.debug(
+                "Ignoring Plug and Go start %.0fs after StopTransaction to avoid "
+                "restarting after a charger status bounce",
+                elapsed_since_stop.total_seconds(),
+            )
+            return False
+
+        return True
 
     async def _async_upsert_device(self) -> None:
         """Create or update the charger device."""
