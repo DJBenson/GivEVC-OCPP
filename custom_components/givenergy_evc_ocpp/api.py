@@ -29,6 +29,12 @@ POST /api/givenergy_evc_ocpp/command
 
 All endpoints require a long-lived HA access token:
     Authorization: Bearer <token>
+
+The following require the token to belong to an administrator: the actions
+reset, factory_reset, trigger_message, change_configuration,
+set_charging_profile, clear_charging_profile, update_firmware and
+install_firmware; and ?diagnostics=true on the status endpoint. Non-admin
+status responses omit RFID tag ids.
 """
 
 from __future__ import annotations
@@ -98,11 +104,42 @@ def _serialize(obj: Any) -> Any:
     return obj
 
 
-def _state_to_dict(coordinator, *, include_diagnostics: bool = False) -> dict[str, Any]:
+# Actions that can reflash, reset or reconfigure the charger at the OCPP level.
+# Only Home Assistant administrators may run them.
+_ADMIN_ACTIONS: frozenset[str] = frozenset(
+    {
+        "reset",
+        "factory_reset",
+        "trigger_message",
+        "change_configuration",
+        "set_charging_profile",
+        "clear_charging_profile",
+        "update_firmware",
+        "install_firmware",
+    }
+)
+
+
+def _is_admin(request: web.Request) -> bool:
+    """Return whether the authenticated user is a Home Assistant administrator."""
+    user = request.get("hass_user")
+    return bool(user is not None and user.is_admin)
+
+
+def _state_to_dict(
+    coordinator, *, include_diagnostics: bool = False, is_admin: bool = False
+) -> dict[str, Any]:
     """Serialise coordinator state to a JSON-safe dict."""
     raw = asdict(coordinator.data)
     if not include_diagnostics:
         raw = {k: v for k, v in raw.items() if k not in _DIAGNOSTIC_FIELDS}
+    if not is_admin:
+        # RFID tag ids authorise charging; only administrators may see them.
+        raw.pop("transaction_id_tag", None)
+        raw["rfid_tags"] = [
+            {k: v for k, v in tag.items() if k != "id_tag"}
+            for tag in raw.get("rfid_tags") or []
+        ]
     return _serialize(raw)
 
 
@@ -145,7 +182,12 @@ class GivEnergyEvcApiStatusView(HomeAssistantView):
         if hub is None:
             return self.json_message("Integration not loaded", status_code=503)
 
+        is_admin = _is_admin(request)
         include_diagnostics = request.rel_url.query.get("diagnostics", "").lower() == "true"
+        if include_diagnostics and not is_admin:
+            return self.json_message(
+                "Diagnostics require an administrator account", status_code=401
+            )
 
         if charge_point_id:
             coordinator = hub.get_charge_point_coordinator(charge_point_id)
@@ -155,7 +197,11 @@ class GivEnergyEvcApiStatusView(HomeAssistantView):
                     status_code=404,
                 )
             return self.json(
-                _state_to_dict(coordinator, include_diagnostics=include_diagnostics)
+                _state_to_dict(
+                    coordinator,
+                    include_diagnostics=include_diagnostics,
+                    is_admin=is_admin,
+                )
             )
 
         result: dict[str, Any] = {}
@@ -166,7 +212,9 @@ class GivEnergyEvcApiStatusView(HomeAssistantView):
         for coordinator in all_coordinators:
             cp_id = coordinator.data.charge_point_id or "primary"
             result[cp_id] = _state_to_dict(
-                coordinator, include_diagnostics=include_diagnostics
+                coordinator,
+                include_diagnostics=include_diagnostics,
+                is_admin=is_admin,
             )
         return self.json(result)
 
@@ -242,6 +290,12 @@ class GivEnergyEvcApiCommandView(HomeAssistantView):
 
         if not action:
             return self.json_message("Missing 'action'", status_code=400)
+
+        if action in _ADMIN_ACTIONS and not _is_admin(request):
+            return self.json_message(
+                f"Action {action!r} requires an administrator account",
+                status_code=401,
+            )
 
         try:
             coordinator = hub.resolve_service_target(cp_id)

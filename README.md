@@ -297,6 +297,8 @@ Firmware files are downloaded on demand into the local cache and kept there for 
   </tbody>
 </table>
 
+The firmware server only accepts connections from the IP address of a charger connected to the integration. Connections from other addresses are rejected and logged.
+
 WARNING! Use this at your own risk! I accept no liability if you brick your device (unlikely but needs to be said). Several people have upgraded their chargers to the latest version using this integration (and I've tested downgrading) but it's on you if it bricks your charger.
 
 ## Scheduled charging
@@ -340,6 +342,8 @@ There are two service calls:
 
 - `givenergy_evc_ocpp.add_rfid_tag` - add or update a tag
 - `givenergy_evc_ocpp.remove_rfid_tag` - remove a tag
+
+The `RFID tags` sensor shows the number of authorised tags, with each tag's name and status as attributes.
 
 ### Adding a tag
 
@@ -388,9 +392,10 @@ Diagnostics may include:
 - last meter values payload
 - parsed meter values
 - full `GetConfiguration` result
-- optional rolling OCPP frame history
 
-If you need deeper troubleshooting, enable enhanced OCPP diagnostics in the integration options and then download diagnostics from Home Assistant.
+The following are redacted from downloaded diagnostics: RFID tag ids, authorisation and transaction requests, OCPP frame history, charger serial numbers and network addresses.
+
+When enhanced OCPP diagnostics is enabled, administrators can read the unredacted state, including the OCPP frame history, from `GET /api/givenergy_evc_ocpp/status?diagnostics=true`.
 
 ## Notes
 
@@ -399,3 +404,4 @@ If you need deeper troubleshooting, enable enhanced OCPP diagnostics in the inte
 - One listener can now handle more than one GivEnergy charger.
 - The original primary charger keeps the legacy entity IDs for compatibility.
 - Additional chargers are onboarded separately after discovery and use charger-scoped entity IDs.
+- The `update_firmware`, `change_configuration`, `set_charging_profile`, `clear_charging_profile`, `reset` and `trigger_message` actions require an administrator. The REST API also requires an administrator for these, plus `factory_reset` and `install_firmware`. Automations are not affected.

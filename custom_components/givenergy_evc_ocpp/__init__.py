@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.device_registry import DeviceEntry
+from homeassistant.helpers.service import async_register_admin_service
 
 from .const import (
     ATTR_CHARGE_POINT_ID,
@@ -89,24 +90,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub.attach_server(server)
     hub.attach_firmware_server(firmware_server)
 
-    await coordinator.async_start()
-    await hub.async_start()
-
-    runtime_data = GivEnergyRuntimeData(
-        hub=hub,
-        coordinator=coordinator,
-        server=server,
-        firmware_server=firmware_server,
-    )
-    entry.runtime_data = runtime_data
-    hass.data[DOMAIN][entry.entry_id] = runtime_data
-
-    await _async_register_services(hass)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Start the server only after all platform listeners are registered so that
-    # any charger connecting immediately after startup fires the
-    # SIGNAL_ACCEPTED_CHARGE_POINT into listeners that are already in place.
+    # Bind the OCPP listener before anything else is started, so a port that is
+    # already taken fails fast with nothing to clean up. The server does not
+    # handle connections until set_ready() is called below, which keeps the
+    # guarantee that platform listeners exist before any charger is accepted.
     try:
         await server.async_start()
     except OSError as err:
@@ -114,18 +101,75 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             f"Unable to listen on configured port {coordinator.listen_port}: {err}"
         ) from err
 
-    # Register REST API views once for the lifetime of the HA process.
-    # Views look up runtime data dynamically so they survive entry reloads.
-    if not hass.data[DOMAIN].get("views_registered"):
-        hass.http.register_view(_api.GivEnergyEvcApiStatusView())
-        hass.http.register_view(_api.GivEnergyEvcApiCommandView())
-        hass.data[DOMAIN]["views_registered"] = True
+    runtime_data = GivEnergyRuntimeData(
+        hub=hub,
+        coordinator=coordinator,
+        server=server,
+        firmware_server=firmware_server,
+    )
+    platforms_forwarded = False
 
-    # Advertise via mDNS so the GivLocal app can discover us on the LAN.
-    runtime_data.zeroconf_info = await _async_register_zeroconf(hass, entry)
+    try:
+        await coordinator.async_start()
+        await hub.async_start()
 
+        entry.runtime_data = runtime_data
+        hass.data[DOMAIN][entry.entry_id] = runtime_data
+
+        await _async_register_services(hass)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        platforms_forwarded = True
+
+        # Register REST API views once for the lifetime of the HA process.
+        # Views look up runtime data dynamically so they survive entry reloads.
+        if not hass.data[DOMAIN].get("views_registered"):
+            hass.http.register_view(_api.GivEnergyEvcApiStatusView())
+            hass.http.register_view(_api.GivEnergyEvcApiCommandView())
+            hass.data[DOMAIN]["views_registered"] = True
+
+        # Advertise via mDNS so the GivLocal app can discover us on the LAN.
+        runtime_data.zeroconf_info = await _async_register_zeroconf(hass, entry)
+    except BaseException:
+        await _async_cleanup_failed_setup(
+            hass, entry, runtime_data, platforms_forwarded=platforms_forwarded
+        )
+        raise
+
+    server.set_ready()
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
+
+
+async def _async_cleanup_failed_setup(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    runtime: GivEnergyRuntimeData,
+    *,
+    platforms_forwarded: bool,
+) -> None:
+    """Tear down everything a failed async_setup_entry started."""
+
+    async def _safely(step: str, coro: Any) -> None:
+        try:
+            await coro
+        except Exception:  # noqa: BLE001 - best-effort cleanup
+            _LOGGER.exception("Error during setup cleanup (%s)", step)
+
+    if platforms_forwarded:
+        await _safely(
+            "unload platforms",
+            hass.config_entries.async_unload_platforms(entry, PLATFORMS),
+        )
+    if runtime.zeroconf_info is not None:
+        await _safely("zeroconf", _async_unregister_zeroconf(hass, runtime.zeroconf_info))
+    await _safely("ocpp server", runtime.server.async_stop())
+    await _safely("firmware server", runtime.firmware_server.async_stop())
+    await _safely("hub", runtime.hub.async_stop())
+    await _safely("coordinator", runtime.coordinator.async_stop())
+
+    hass.data[DOMAIN].pop(entry.entry_id, None)
+    if not any(key not in _NON_RUNTIME_KEYS for key in hass.data[DOMAIN]):
+        _async_unregister_services(hass)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -147,7 +191,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await runtime.coordinator.async_stop()
 
     hass.data[DOMAIN].pop(entry.entry_id, None)
-    if not hass.data[DOMAIN]:
+    if not any(key not in _NON_RUNTIME_KEYS for key in hass.data[DOMAIN]):
         _async_unregister_services(hass)
 
     return unload_ok
@@ -298,7 +342,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             id_tag=call.data["id_tag"],
         )
 
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_RESET,
         async_handle_reset,
@@ -310,7 +355,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_TRIGGER_MESSAGE,
         async_handle_trigger,
@@ -348,7 +394,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
         ),
         supports_response=SupportsResponse.ONLY,
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_CHANGE_CONFIGURATION,
         async_handle_change_configuration,
@@ -387,7 +434,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_SET_CHARGING_PROFILE,
         async_handle_set_profile,
@@ -400,7 +448,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_CLEAR_CHARGING_PROFILE,
         async_handle_clear_profile,
@@ -427,7 +476,8 @@ async def _async_register_services(hass: HomeAssistant) -> None:
             }
         ),
     )
-    hass.services.async_register(
+    async_register_admin_service(
+        hass,
         DOMAIN,
         SERVICE_UPDATE_FIRMWARE,
         async_handle_update_firmware,

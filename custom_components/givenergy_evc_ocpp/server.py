@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiohttp import web
@@ -13,6 +14,11 @@ from .hub import GivEnergyChargePointHub
 from .const import DEFAULT_LISTEN_HOST, WEBSOCKET_SUBPROTOCOL
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long an early connection waits for entry setup to finish before it is
+# turned away (the charger simply retries).
+READY_WAIT_TIMEOUT = 60
+
 
 class GivEnergyOcppServer:
     """Manage the dedicated inbound OCPP websocket listener."""
@@ -32,18 +38,36 @@ class GivEnergyOcppServer:
         self._runner: web.AppRunner | None = None
         self._site: web.BaseSite | None = None
         self._sessions: dict[str, GivEnergyChargePointSession] = {}
+        self._ready = asyncio.Event()
+
+    def set_ready(self) -> None:
+        """Start handling connections once entity platforms are in place."""
+
+        self._ready.set()
 
     async def async_start(self) -> None:
-        """Start listening for websocket connections."""
+        """Bind the websocket listener.
 
-        self._runner = web.AppRunner(self._app, access_log=None)
-        await self._runner.setup()
-        self._site = web.TCPSite(
-            self._runner,
+        Connections are accepted at the socket level immediately but are not
+        handled until set_ready() is called, so the port can be claimed before
+        the rest of the entry is set up.
+        """
+
+        self._ready.clear()
+        runner = web.AppRunner(self._app, access_log=None)
+        await runner.setup()
+        site = web.TCPSite(
+            runner,
             host=DEFAULT_LISTEN_HOST,
             port=self.hub.primary_coordinator.listen_port,
         )
-        await self._site.start()
+        try:
+            await site.start()
+        except BaseException:
+            await runner.cleanup()
+            raise
+        self._runner = runner
+        self._site = site
         _LOGGER.info(
             "Listening for GivEnergy EVC OCPP connections on %s:%s",
             DEFAULT_LISTEN_HOST,
@@ -53,6 +77,7 @@ class GivEnergyOcppServer:
     async def async_stop(self) -> None:
         """Stop the websocket listener."""
 
+        self._ready.clear()
         for session in list(self._sessions.values()):
             await session.async_close()
         self._sessions.clear()
@@ -92,6 +117,12 @@ class GivEnergyOcppServer:
 
     async def _async_handle_websocket(self, request: web.Request) -> web.StreamResponse:
         """Accept a websocket request from the charger."""
+
+        if not self._ready.is_set():
+            try:
+                await asyncio.wait_for(self._ready.wait(), READY_WAIT_TIMEOUT)
+            except TimeoutError:
+                return web.Response(status=503, text="Integration is starting")
 
         candidate_id = request.match_info.get("charge_point_id", "").strip("/") or None
         local_host = None

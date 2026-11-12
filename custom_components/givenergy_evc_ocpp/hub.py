@@ -48,6 +48,7 @@ class GivEnergyChargePointHub:
         self._secondary_coordinators: dict[str, GivEnergyEvcCoordinator] = {}
         self._signalled_accepted: set[str] = set()
         self._primary_claimed: bool = False
+        self._warned_rejected_hosts: set[str | None] = set()
 
     async def async_restore_persisted_state(self) -> None:
         """Restore accepted charger IDs from storage."""
@@ -91,6 +92,8 @@ class GivEnergyChargePointHub:
             await self._async_start_secondary_coordinator(coordinator)
             self._secondary_coordinators[charge_point_id] = coordinator
 
+        self.refresh_firmware_allowlist()
+
     async def async_stop(self) -> None:
         """Stop secondary coordinators."""
 
@@ -127,6 +130,25 @@ class GivEnergyChargePointHub:
             coordinator.set_firmware_server(firmware_server, register_events=False)
             coordinator.data.firmware_server_running = firmware_server.is_running
         firmware_server.set_event_callback(self._async_handle_firmware_server_event)
+        self.refresh_firmware_allowlist()
+
+    def refresh_firmware_allowlist(self) -> None:
+        """Allow firmware-server connections only from known charger addresses.
+
+        Uses each charger's last known websocket address (not only currently
+        connected ones) because chargers may drop the OCPP websocket while they
+        fetch a firmware image.
+        """
+
+        if self.firmware_server is None:
+            return
+        # websocket_remote_address holds aiohttp's request.remote: a bare IP.
+        hosts = {
+            str(coordinator.data.websocket_remote_address)
+            for coordinator in self._all_coordinators()
+            if coordinator.data.websocket_remote_address
+        }
+        self.firmware_server.set_allowed_hosts(hosts)
 
     def coordinator_for_connection(
         self, candidate_id: str | None
@@ -174,6 +196,8 @@ class GivEnergyChargePointHub:
         self, coordinator: GivEnergyEvcCoordinator
     ) -> None:
         """Record and auto-accept a discovered charger."""
+
+        self.refresh_firmware_allowlist()
 
         charge_point_id = self._coordinator_charge_point_id(coordinator)
         if not charge_point_id:
@@ -237,6 +261,7 @@ class GivEnergyChargePointHub:
                 await self.server.async_disconnect_charge_point(normalized_id)
             await coordinator.async_stop()
 
+        self.refresh_firmware_allowlist()
         return True
 
     def get_charge_point_coordinator(
@@ -308,6 +333,15 @@ class GivEnergyChargePointHub:
         """Route shared firmware-server events to the charger they belong to."""
 
         event_type = event.get("event")
+        if event_type == "rejected_connection":
+            host = self._remote_host(event.get("remote"))
+            if host not in self._warned_rejected_hosts:
+                self._warned_rejected_hosts.add(host)
+                _LOGGER.warning(
+                    "Refused firmware server connection from %s: not a known charger address",
+                    host,
+                )
+            return
         if event_type in {"server_started", "server_stopped", "server_error"}:
             for coordinator in self._all_coordinators():
                 await coordinator.async_handle_firmware_server_event(event)

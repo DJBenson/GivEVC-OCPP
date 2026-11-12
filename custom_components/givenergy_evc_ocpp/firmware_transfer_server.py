@@ -124,6 +124,35 @@ class GivEnergyFirmwareTransferServer:
         self._stop_event = threading.Event()
         self._startup_error: Exception | None = None
         self._port: int | None = None
+        # Replaced wholesale (never mutated) from the event loop, so the server
+        # thread can read it without locking.
+        self._allowed_hosts: frozenset[str] = frozenset()
+
+    @staticmethod
+    def normalize_host(host: str | None) -> str | None:
+        """Return a comparable host string (IPv4-mapped IPv6 collapsed to IPv4)."""
+
+        if not host:
+            return None
+        host = str(host).strip().lower()
+        if host.startswith("::ffff:") and "." in host:
+            host = host[7:]
+        return host or None
+
+    def set_allowed_hosts(self, hosts: set[str] | frozenset[str]) -> None:
+        """Restrict connections to the given charger addresses."""
+
+        self._allowed_hosts = frozenset(
+            normalized
+            for host in hosts
+            if (normalized := self.normalize_host(host)) is not None
+        )
+
+    def is_host_allowed(self, host: str | None) -> bool:
+        """Return whether a peer address belongs to a known charger."""
+
+        normalized = self.normalize_host(host)
+        return normalized is not None and normalized in self._allowed_hosts
 
     def set_event_callback(
         self, callback: Callable[[dict[str, Any]], Awaitable[None]]
@@ -144,7 +173,10 @@ class GivEnergyFirmwareTransferServer:
         if self.is_running:
             return
 
-        self.root.mkdir(parents=True, exist_ok=True)
+        root = self.root
+        await self.hass.async_add_executor_job(
+            lambda: root.mkdir(parents=True, exist_ok=True)
+        )
         self._startup_complete.clear()
         self._stop_event.clear()
         self._startup_error = None
@@ -462,112 +494,6 @@ class GivEnergyFirmwareTransferServer:
                 }
             )
 
-    def _handle_upload(
-        self,
-        conn: _JsonSocketConnection,
-        remote: str,
-        request: dict[str, Any],
-        *,
-        trace_label: str,
-    ) -> None:
-        """Receive a chunked file upload from the charger."""
-
-        sock = conn.sock
-        filename = Path(str(request.get("filename", "upload.bin"))).name
-        pack_len = max(
-            1, int(request.get("packlen", DEFAULT_CHUNK_SIZE) or DEFAULT_CHUNK_SIZE)
-        )
-        pack_num = max(0, int(request.get("packnum", 0) or 0))
-        expected_checksum = int(request.get("checksum", 0) or 0)
-        save_dir = self.root / "uploads"
-        save_dir.mkdir(parents=True, exist_ok=True)
-        save_path = save_dir / filename
-
-        self._emit_event(
-            {
-                "event": "upload_started",
-                "remote": remote,
-                "trace": trace_label,
-                "filename": filename,
-                "chunk_size": pack_len,
-                "chunk_count": pack_num,
-            }
-        )
-
-        checksum = 0
-        bytes_received = 0
-        with save_path.open("wb") as uploaded:
-            for pack_sn in range(pack_num):
-                data = b""
-                while len(data) < pack_len:
-                    try:
-                        chunk = sock.recv(pack_len - len(data))
-                    except socket.timeout:
-                        self._emit_event(
-                            {
-                                "event": "socket_timeout",
-                                "remote": remote,
-                                "trace": trace_label,
-                            }
-                        )
-                        break
-                    if not chunk:
-                        break
-                    data += chunk
-
-                if not data:
-                    break
-
-                uploaded.write(data)
-                bytes_received += len(data)
-                for byte in data:
-                    checksum = (checksum + byte) & 0xFFFFFFFF
-                self._send_json(
-                    sock,
-                    {"packsn": str(pack_sn)},
-                    remote=remote,
-                    trace_label=trace_label,
-                )
-
-        self._emit_event(
-            {
-                "event": "upload_complete",
-                "remote": remote,
-                "trace": trace_label,
-                "filename": filename,
-                "bytes": bytes_received,
-                "checksum": checksum,
-                "expected_checksum": expected_checksum,
-            }
-        )
-
-        if checksum == expected_checksum:
-            self._send_json(
-                sock, {"checksum": "ok"}, remote=remote, trace_label=trace_label
-            )
-            self._emit_event(
-                {
-                    "event": "upload_checksum_ok",
-                    "remote": remote,
-                    "trace": trace_label,
-                    "filename": filename,
-                }
-            )
-        else:
-            self._send_json(
-                sock, {"checksum": "false"}, remote=remote, trace_label=trace_label
-            )
-            self._emit_event(
-                {
-                    "event": "upload_checksum_mismatch",
-                    "remote": remote,
-                    "trace": trace_label,
-                    "filename": filename,
-                    "checksum": checksum,
-                    "expected_checksum": expected_checksum,
-                }
-            )
-
     def _handle_client(self, conn: socket.socket, addr: tuple[str, int]) -> None:
         """Handle a single charger connection."""
 
@@ -619,14 +545,29 @@ class GivEnergyFirmwareTransferServer:
                 )
                 return
 
+            if upload == "1":
+                # Uploads to the Home Assistant host are not supported.
+                self._send_json(
+                    conn,
+                    {"res": "Data format error"},
+                    remote=remote,
+                    trace_label=trace_label,
+                )
+                self._emit_event(
+                    {
+                        "event": "upload_rejected",
+                        "remote": remote,
+                        "trace": trace_label,
+                        "filename": requested_filename,
+                    }
+                )
+                active_filename = None
+                return
+
             previous_session_id = self._register_active_request(
                 addr[0], requested_filename, session_id
             )
-            if (
-                upload != "1"
-                and previous_session_id is not None
-                and previous_session_id != session_id
-            ):
+            if previous_session_id is not None and previous_session_id != session_id:
                 self._emit_event(
                     {
                         "event": "overlapping_request",
@@ -637,14 +578,9 @@ class GivEnergyFirmwareTransferServer:
                     }
                 )
 
-            if upload == "1":
-                self._handle_upload(
-                    json_conn, remote, request, trace_label=trace_label
-                )
-            else:
-                self._handle_download(
-                    json_conn, remote, request, trace_label=trace_label
-                )
+            self._handle_download(
+                json_conn, remote, request, trace_label=trace_label
+            )
         except Exception as err:
             self._emit_event(
                 {
@@ -694,6 +630,19 @@ class GivEnergyFirmwareTransferServer:
                     if self._stop_event.is_set():
                         break
                     raise
+
+                if not self.is_host_allowed(addr[0]):
+                    try:
+                        conn.close()
+                    except OSError:
+                        pass
+                    self._emit_event(
+                        {
+                            "event": "rejected_connection",
+                            "remote": f"{addr[0]}:{addr[1]}",
+                        }
+                    )
+                    continue
 
                 threading.Thread(
                     target=self._handle_client,

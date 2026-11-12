@@ -108,7 +108,6 @@ class GivEnergyFirmwareFileSelect(GivEnergyEvcEntity, SelectEntity):
     def options(self) -> list[str]:
         """Return available manifest-backed firmware files with cache-state labels."""
 
-        self.coordinator._refresh_available_firmware_files()
         return [
             self._option_label(filename)
             for filename in self.coordinator.data.available_firmware_files

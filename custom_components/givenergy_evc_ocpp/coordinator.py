@@ -12,10 +12,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfElectricCurrent, UnitOfElectricPotential
-from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTime
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -61,6 +58,10 @@ FIRMWARE_INSTALL_DISCONNECT_GRACE = timedelta(minutes=2)
 FIRMWARE_INSTALL_QUIET_GRACE = timedelta(seconds=90)
 PLUG_AND_GO_RESTART_GRACE = timedelta(minutes=5)
 
+# Computed once at import time (no filesystem access) so entity properties never
+# have to touch the disk to work out where cached firmware lives.
+FIRMWARE_DIRECTORY = Path(__file__).parent / "firmware"
+
 
 @dataclass(slots=True)
 class GivEnergyEvcState:
@@ -102,6 +103,7 @@ class GivEnergyEvcState:
     firmware_server_last_transfer: dict[str, Any] | None = None
     selected_firmware_file: str | None = None
     available_firmware_files: list[str] = field(default_factory=list)
+    cached_firmware_files: list[str] = field(default_factory=list)
     firmware_server_events: list[dict[str, Any]] = field(default_factory=list)
     diagnostics_status: str | None = None
     error_code: str | None = None
@@ -240,6 +242,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "firmware_update_expected_reconnect_by": self.data.firmware_update_expected_reconnect_by,
             "firmware_server_enabled": self.data.firmware_server_enabled,
             "firmware_server_host": self.data.firmware_server_host,
+            "websocket_remote_address": self.data.websocket_remote_address,
             "firmware_server_last_transfer": self.data.firmware_server_last_transfer,
             "selected_firmware_file": self.data.selected_firmware_file,
             "charging_schedule": self.data.charging_schedule,
@@ -352,6 +355,9 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.firmware_server_host = (
             str(firmware_server_host).strip() if firmware_server_host else None
         )
+        websocket_remote_address = state.get("websocket_remote_address")
+        if websocket_remote_address and not self.data.websocket_remote_address:
+            self.data.websocket_remote_address = str(websocket_remote_address).strip()
         self.data.firmware_server_last_transfer = state.get(
             "firmware_server_last_transfer", state.get("firmware_ftp_last_transfer")
         )
@@ -522,7 +528,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     def firmware_directory(self) -> Path:
         """Return the directory served by the local firmware transfer server."""
 
-        return Path(__file__).resolve().parent / "firmware"
+        return FIRMWARE_DIRECTORY
 
     @property
     def firmware_update_in_progress(self) -> bool:
@@ -979,10 +985,6 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             "checksum_reported",
             "checksum_ok",
             "checksum_mismatch",
-            "upload_started",
-            "upload_complete",
-            "upload_checksum_ok",
-            "upload_checksum_mismatch",
         }:
             self.data.firmware_server_last_transfer = event_record
 
@@ -1917,6 +1919,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         self.data.firmware_manifest_error = None
         self.data.firmware_manifest_refreshed_at = datetime.now(UTC)
         self._refresh_available_firmware_files()
+        await self.async_refresh_firmware_cache_state(publish=False)
         self._publish_state()
 
     def _parse_firmware_manifest(self, manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1986,18 +1989,23 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
             raise HomeAssistantError(f"No manifest entry was found for firmware file: {filename}")
 
         firmware_dir = self.firmware_directory
-        firmware_dir.mkdir(parents=True, exist_ok=True)
+        await self.hass.async_add_executor_job(
+            lambda: firmware_dir.mkdir(parents=True, exist_ok=True)
+        )
         target_path = firmware_dir / filename
 
-        if await self._async_cached_firmware_matches_manifest(target_path, entry):
-            return target_path
+        try:
+            if await self._async_cached_firmware_matches_manifest(target_path, entry):
+                return target_path
 
-        await self._async_download_firmware(target_path, entry)
+            await self._async_download_firmware(target_path, entry)
 
-        if not await self._async_cached_firmware_matches_manifest(target_path, entry):
-            raise HomeAssistantError(
-                f"Downloaded firmware failed checksum validation: {filename}"
-            )
+            if not await self._async_cached_firmware_matches_manifest(target_path, entry):
+                raise HomeAssistantError(
+                    f"Downloaded firmware failed checksum validation: {filename}"
+                )
+        finally:
+            await self.async_refresh_firmware_cache_state()
 
         return target_path
 
@@ -2006,25 +2014,37 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
     ) -> bool:
         """Return whether a cached firmware file matches manifest size and checksum."""
 
+        return await self.hass.async_add_executor_job(
+            self._file_matches_manifest,
+            path,
+            entry.get("size"),
+            entry.get("checksum_md5"),
+        )
+
+    @classmethod
+    def _file_matches_manifest(
+        cls, path: Path, expected_size: int | None, expected_md5: str | None
+    ) -> bool:
+        """Check a file's size and MD5 against the manifest (runs in the executor)."""
+
         if not path.is_file():
             return False
-
-        expected_size = entry.get("size")
-        actual_size = path.stat().st_size
-        if expected_size is not None and actual_size != expected_size:
+        if expected_size is not None and path.stat().st_size != expected_size:
             return False
+        return cls._compute_md5(path) == expected_md5
 
-        expected_md5 = entry.get("checksum_md5")
-        actual_md5 = await self.hass.async_add_executor_job(self._compute_md5, path)
-        return actual_md5 == expected_md5
+    @staticmethod
+    def _remove_file_if_exists(path: Path) -> None:
+        """Delete a file if present (runs in the executor)."""
+
+        path.unlink(missing_ok=True)
 
     async def _async_download_firmware(self, target_path: Path, entry: dict[str, Any]) -> None:
         """Download a firmware file into the local cache."""
 
         download_url = entry["url"]
         temp_path = target_path.with_suffix(f"{target_path.suffix}.download")
-        if temp_path.exists():
-            temp_path.unlink()
+        await self.hass.async_add_executor_job(self._remove_file_if_exists, temp_path)
 
         session = async_get_clientsession(self.hass)
         try:
@@ -2047,8 +2067,7 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
                 )
             await self.hass.async_add_executor_job(temp_path.replace, target_path)
         finally:
-            if temp_path.exists():
-                temp_path.unlink()
+            await self.hass.async_add_executor_job(self._remove_file_if_exists, temp_path)
 
     def _firmware_update_in_progress(self) -> bool:
         """Return whether a firmware update session is currently active."""
@@ -2410,24 +2429,39 @@ class GivEnergyEvcCoordinator(DataUpdateCoordinator[GivEnergyEvcState]):
         if self.data.selected_firmware_file not in files:
             self.data.selected_firmware_file = files[0] if files else None
 
+        # Drop cache entries for files no longer in the catalog; additions are
+        # only discovered by async_refresh_firmware_cache_state (executor).
+        self.data.cached_firmware_files = [
+            filename for filename in self.data.cached_firmware_files if filename in files
+        ]
+
+    async def async_refresh_firmware_cache_state(self, *, publish: bool = True) -> None:
+        """Work out which catalog files are cached locally, off the event loop."""
+
+        firmware_dir = self.firmware_directory
+        files = list(self.data.available_firmware_files)
+
+        def _scan() -> list[str]:
+            return [name for name in files if (firmware_dir / name).is_file()]
+
+        self.data.cached_firmware_files = await self.hass.async_add_executor_job(_scan)
+        if publish:
+            self._publish_state()
+
     def firmware_cache_path(self, filename: str) -> Path:
         """Return the local cache path for a firmware filename."""
 
         return self.firmware_directory / filename
 
     def is_firmware_cached(self, filename: str) -> bool:
-        """Return whether a firmware file is already present in the local cache."""
+        """Return whether a firmware file is cached (reads in-memory state only)."""
 
-        return self.firmware_cache_path(filename).is_file()
+        return filename in self.data.cached_firmware_files
 
     def cached_firmware_files(self) -> list[str]:
-        """Return cached firmware files from the current manifest-backed catalog."""
+        """Return cached firmware files (reads in-memory state only)."""
 
-        return [
-            filename
-            for filename in self.data.available_firmware_files
-            if self.is_firmware_cached(filename)
-        ]
+        return list(self.data.cached_firmware_files)
 
     @staticmethod
     def _compute_md5(path: Path) -> str:

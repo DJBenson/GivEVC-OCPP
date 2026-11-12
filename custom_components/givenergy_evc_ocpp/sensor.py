@@ -362,8 +362,9 @@ SENSORS: tuple[GivEnergySensorDescription, ...] = (
         attrs_fn=lambda coordinator: {
             f"tag_{i + 1}_{attr}": val
             for i, tag in enumerate(coordinator.data.rfid_tags)
+            # Tag ids authorise charging, so they are deliberately not exposed
+            # as attributes (which are recorded and visible to every user).
             for attr, val in {
-                "id_tag": tag.get("id_tag"),
                 "name": tag.get("name"),
                 "status": tag.get("status"),
             }.items()
